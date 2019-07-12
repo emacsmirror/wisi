@@ -1,8 +1,8 @@
 --  Abstract :
 --
---  Code to explore parse table, enqueuing new configs to check.
+--  Root of extensions to Ada.Containers.
 --
---  Copyright (C) 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2019 Free Software Foundation All Rights Reserved.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -16,13 +16,6 @@
 --  version 3.1, as published by the Free Software Foundation.
 
 pragma License (Modified_GPL);
+package SAL.Ada_Containers is
 
-with WisiToken.Parse.LR.McKenzie_Recover.Base;
-private package WisiToken.Parse.LR.McKenzie_Recover.Explore is
-
-   procedure Process_One
-     (Super         : not null access Base.Supervisor;
-      Shared        : not null access Base.Shared;
-      Config_Status : out             Base.Config_Status);
-
-end WisiToken.Parse.LR.McKenzie_Recover.Explore;
+end SAL.Ada_Containers;
