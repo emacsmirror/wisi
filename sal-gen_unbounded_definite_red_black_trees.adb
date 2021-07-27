@@ -350,7 +350,7 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
          raise Not_Found;
       else
          --  WORKAROUND: see note in Constant_Reference
-         return (Element => Node.all.Element'Access, Dummy => 1);
+         return (Element => Node.Element'Access, Dummy => 1);
       end if;
    end Variable_Reference;
 
