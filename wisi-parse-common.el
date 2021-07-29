@@ -304,9 +304,6 @@ Larger stack size allows more deeply nested constructs.")
 Otherwise, they are indented with previous comments or code.
 Normally set from a language-specific option.")
 
-(defvar-local wisi-end-caches nil
-  "List of buffer positions of caches in current statement that need wisi-cache-end set.")
-
 (defconst wisi-eoi-term 'Wisi_EOI
   ;; must match FastToken wisi-output_elisp.adb EOI_Name, which must
   ;; be part of a valid Ada identifer.
@@ -319,7 +316,7 @@ Normally set from a language-specific option.")
    statement-start
    misc ;; other stuff
    ]
-  "array of valid token classes; checked in wisi-statement-action, used in wisi-process-parse.")
+  "array of valid token classes.")
 
 (defun wisi-error-msg (message &rest args)
   (let ((line (line-number-at-pos))

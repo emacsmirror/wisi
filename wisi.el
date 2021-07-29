@@ -1201,7 +1201,8 @@ failing; assumes user was editing code that is now syntactically
 correct. Must leave point at indentation of current line.")
 
 (defvar-local wisi-indent-failed nil
-  "Non-nil when wisi-indent-region fails due to parse failing; cleared when indent succeeds.")
+  "Non-nil when indent fails due to parse fail.
+Cleared when indent succeeds.")
 
 (defvar-local wisi-indent-region-fallback 'wisi-indent-region-fallback-default
   "Function to compute indent for lines in region when wisi parse fails.
