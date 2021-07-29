@@ -1,6 +1,6 @@
 ;; wisitoken-parse_table-mode.el --- For navigating in a parse table as output by wisitoken-bnf-generate. -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2017 - 2020  Free Software Foundation, Inc.
+;; Copyright (C) 2017 - 2021  Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@stephe-leake.org>
 ;; Maintainer: Stephen Leake <stephen_leake@stephe-leake.org>
@@ -80,7 +80,7 @@
 ;;;###autoload
 (define-minor-mode wisitoken-parse_table-mode
   "Provides navigation in wisi-generate parse table output."
-  nil ":parse_table" nil
+  :lighter ":parse_table"
   (add-hook 'xref-backend-functions #'wisitoken-parse_table--xref-backend nil t)
 
   (if wisitoken-parse_table-mode

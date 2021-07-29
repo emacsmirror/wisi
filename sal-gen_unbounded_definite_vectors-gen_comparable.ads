@@ -2,7 +2,7 @@
 --
 --  Add "<" to parent
 --
---  Copyright (C) 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2018, 2020 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -26,5 +26,7 @@ package SAL.Gen_Unbounded_Definite_Vectors.Gen_Comparable is
    function Compare (Left, Right : in Vector) return Compare_Result;
    --  Similar to Ada "<" for arrays; Ada Reference Manual
    --  section 4.5.2 para 26/3.
+
+   Empty_Vector : constant Vector := (SAL.Gen_Unbounded_Definite_Vectors.Empty_Vector with null record);
 
 end SAL.Gen_Unbounded_Definite_Vectors.Gen_Comparable;

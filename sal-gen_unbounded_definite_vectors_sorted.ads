@@ -2,7 +2,7 @@
 --
 --  A simple unbounded sorted vector of definite items.
 --
---  Copyright (C) 2019 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2019 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -25,6 +25,7 @@ generic
    type Key_Type is private;
    with function To_Key (Item : in Element_Type) return Key_Type;
    with function Key_Compare (Left, Right : in Key_Type) return Compare_Result;
+   Default_Element : in Element_Type;
 package SAL.Gen_Unbounded_Definite_Vectors_Sorted is
 
    use all type Ada.Containers.Count_Type;

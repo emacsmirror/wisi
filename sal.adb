@@ -21,12 +21,50 @@
 --  executable to be covered by the GNU General Public License. This
 --  exception does not however invalidate any other reasons why the
 --  executable file might be covered by the GNU Public License.
---
+
+pragma License (Modified_GPL);
+
 package body SAL is
 
    function Version return String is
    begin
       return "SAL 3.5";
    end Version;
+
+   function String_Compare (Left, Right : in String) return Compare_Result
+   is
+      J : Integer := Right'First;
+   begin
+      if Left'Length = 0 then
+         if Right'Length = 0 then
+            return Equal;
+         else
+            return Less;
+         end if;
+      else
+         if Right'Length = 0 then
+            return Greater;
+         end if;
+
+         for I in Left'Range loop
+            if Left (I) > Right (J) then
+               return Greater;
+            elsif Left (I) < Right (J) then
+               return Less;
+            end if;
+
+            J := J + 1;
+            if I < Left'Last and J > Right'Last then
+               return Greater;
+            end if;
+         end loop;
+
+         if J < Right'Last then
+            return Less;
+         else
+            return Equal;
+         end if;
+      end if;
+   end String_Compare;
 
 end SAL;

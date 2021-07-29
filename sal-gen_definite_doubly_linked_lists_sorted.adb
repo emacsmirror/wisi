@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -185,7 +185,8 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists_Sorted is
          Free (Container.Head);
          Container.Head := Next;
       end loop;
-      Container.Tail := null;
+      Container.Tail  := null;
+      Container.Count := 0;
    end Finalize;
 
    overriding function "=" (Left, Right : in List) return Boolean
@@ -378,18 +379,18 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists_Sorted is
    function First (Container : aliased in List) return Cursor
    is begin
       if Container.Head = null then
-         return (Container'Access, null);
+         return (Ptr => null);
       else
-         return (Container'Access, Container.Head);
+         return (Ptr => Container.Head);
       end if;
    end First;
 
    function Last (Container : aliased in List) return Cursor
    is begin
       if Container.Tail = null then
-         return (Container'Access, null);
+         return (Ptr => null);
       else
-         return (Container'Access, Container.Tail);
+         return (Ptr => Container.Tail);
       end if;
    end Last;
 
@@ -401,11 +402,11 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists_Sorted is
       Find (Container, Element, Node, Compare);
 
       if Node = null then
-         return (Container'Access, null);
+         return (Ptr => null);
       elsif Compare = Equal then
-         return (Container'Access, Node);
+         return (Ptr => Node);
       else
-         return (Container'Access, null);
+         return (Ptr => null);
       end if;
    end Find;
 
@@ -426,9 +427,9 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists_Sorted is
          return Position;
       else
          if Position.Ptr.Next = null then
-            return (Position.Container, null);
+            return (Ptr => null);
          else
-            return (Position.Container, Position.Ptr.Next);
+            return (Ptr => Position.Ptr.Next);
          end if;
       end if;
    end Next;
@@ -439,9 +440,9 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists_Sorted is
          return Position;
       else
          if Position.Ptr.Prev = null then
-            return (Position.Container, null);
+            return (Ptr => null);
          else
-            return (Position.Container, Position.Ptr.Prev);
+            return (Ptr => Position.Ptr.Prev);
          end if;
       end if;
    end Previous;
@@ -466,7 +467,7 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists_Sorted is
          Node.Prev.Next := Node.Next;
       end if;
       Free (Node);
-      Position        := (Container'Access, null);
+      Position        := (Ptr => null);
       Container.Count := Container.Count - 1;
    end Delete;
 

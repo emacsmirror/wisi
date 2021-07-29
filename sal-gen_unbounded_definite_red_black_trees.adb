@@ -21,10 +21,10 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
 
    --  Local declarations (alphabetical order)
 
-   function Count_Tree (Item : in Node_Access; Nil : in Node_Access) return Ada.Containers.Count_Type
-   with Pre => Nil /= null;
-
    procedure Delete_Fixup (T : in out Tree; X : in out Node_Access);
+
+   procedure Insert_Fixup (Tree : in out Pkg.Tree; Z : in out Node_Access)
+   with Pre => Z /= null;
 
    function Find (Root : in Node_Access; Key : in Key_Type; Nil : in Node_Access) return Node_Access
    with Pre => Nil /= null;
@@ -41,20 +41,30 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
    ----------
    --  local bodies (alphabetical order)
 
-   function Count_Tree (Item : in Node_Access; Nil : in Node_Access) return Ada.Containers.Count_Type
+   procedure Count_Tree
+     (Item           : in     not null Node_Access;
+      Nil            : in     not null Node_Access;
+      Count          : in out Ada.Containers.Count_Type;
+      Max_Depth      : in out Ada.Containers.Count_Type;
+      Sub_Tree_Depth : in     Ada.Containers.Count_Type)
+   with Pre => Item /= Nil
    is
       use all type Ada.Containers.Count_Type;
-      Result : Ada.Containers.Count_Type := 0;
+      Local_Sub_Tree_Depth : constant Ada.Containers.Count_Type := Sub_Tree_Depth + 1;
    begin
+      Count := @ + 1;
+
+      if Local_Sub_Tree_Depth > Max_Depth then
+         Max_Depth := Local_Sub_Tree_Depth;
+      end if;
+
       if Item.Left /= Nil then
-         Result := Result + Count_Tree (Item.Left, Nil);
+         Count_Tree (Item.Left, Nil, Count, Max_Depth, Local_Sub_Tree_Depth);
       end if;
 
       if Item.Right /= Nil then
-         Result := Result + Count_Tree (Item.Right, Nil);
+         Count_Tree (Item.Right, Nil, Count, Max_Depth, Local_Sub_Tree_Depth);
       end if;
-
-      return Result + 1;
    end Count_Tree;
 
    procedure Delete_Fixup (T : in out Tree; X : in out Node_Access)
@@ -138,6 +148,95 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       end loop;
       return null;
    end Find;
+
+   function Find_Or_Insert
+     (Tree      : in out Pkg.Tree;
+      Element   : in     Element_Type;
+      Found     :    out Boolean;
+      Duplicate : in     Duplicate_Action_Type := Error;
+      No_Find   : in     Boolean)
+     return Cursor
+   is
+      --  [1] 13.3 RB-Insert (T, z), with extra return if found
+      Nil   : Node_Access renames Tree.Nil;
+      Key_Z : constant Key_Type := Key (Element);
+      Y     : Node_Access       := Nil;
+      X     : Node_Access       := Tree.Root;
+
+      Compare_Z_Y : Compare_Result;
+   begin
+      Nil.Parent := null;
+      Nil.Left   := null;
+      Nil.Right  := null;
+
+      while X /= Nil loop
+         Y := X;
+         Compare_Z_Y := Key_Compare (Key_Z, Key (X.Element));
+         case Compare_Z_Y is
+         when Less =>
+            X := X.Left;
+         when Equal =>
+            Found := True;
+
+            if No_Find then
+               case Duplicate is
+               when Allow =>
+                  X := X.Right;
+               when Ignore =>
+                  return
+                    (Node       => X,
+                     Direction  => Unknown,
+                     Left_Done  => True,
+                     Right_Done => True);
+               when Error =>
+                  raise Duplicate_Key;
+               end case;
+            else
+               return
+                 (Node       => X,
+                  Direction  => Unknown,
+                  Left_Done  => True,
+                  Right_Done => True);
+            end if;
+         when Greater =>
+            X := X.Right;
+         end case;
+      end loop;
+
+      Found := False;
+
+      --  Not found, or No_Find; insert.
+      declare
+         Z      : Node_Access := new Node'(Element, Nil, Nil, Nil, Red);
+         Result : Node_Access;
+      begin
+
+         Z.Parent := Y;
+         if Y = Nil then
+            Tree.Root := Z;
+         else
+            case Compare_Z_Y is
+            when Less =>
+               Y.Left := Z;
+            when Equal | Greater =>
+               Y.Right := Z;
+            end case;
+         end if;
+
+         Result := Z;
+         if Z = Tree.Root then
+            Z.Color := Black;
+         else
+            Insert_Fixup (Tree, Z);
+         end if;
+
+         return
+           (Node       => Result,
+            Direction  => Unknown,
+            Left_Done  => True,
+            Right_Done => True);
+      end;
+   end Find_Or_Insert;
 
    procedure Free_Tree (Item : in out Node_Access; Nil : in Node_Access)
    is begin
@@ -293,24 +392,57 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       Object.Root      := Object.Nil;
    end Initialize;
 
-   function Has_Element (Cursor : in Pkg.Cursor) return Boolean
-   is begin
-      return Cursor.Node /= null;
-   end Has_Element;
+   overriding procedure Adjust (Object : in out Tree)
+   is
+      Old_Nil : constant Node_Access := Object.Nil;
+      New_Nil : constant Node_Access := new Node;
 
-   function Constant_Reference
-     (Container : aliased in Tree;
-      Position  :         in Cursor)
+      function Copy_Subtree
+        (Node   : in Node_Access;
+         Parent : in Node_Access)
+        return Node_Access
+      is
+         New_Node : constant Node_Access := new Pkg.Node'(Node.Element, Parent, New_Nil, New_Nil, Node.Color);
+      begin
+         if Node.Left /= Old_Nil then
+            New_Node.Left := Copy_Subtree (Node.Left, New_Node);
+         end if;
+
+         if Node.Right /= Old_Nil then
+            New_Node.Right := Copy_Subtree (Node.Right, New_Node);
+         end if;
+
+         return New_Node;
+      end Copy_Subtree;
+   begin
+      Object.Nil       := New_Nil;
+      Object.Nil.Color := Black;
+      if Object.Root = Old_Nil then
+         Object.Root := New_Nil;
+      else
+         Object.Root := Copy_Subtree (Object.Root, New_Nil);
+      end if;
+   end Adjust;
+
+   procedure Clear (Tree : in out Pkg.Tree)
+   is begin
+      Finalize (Tree);
+      Initialize (Tree);
+   end Clear;
+
+   function Constant_Ref
+     (Container : in Tree;
+      Position  : in Cursor)
      return Constant_Reference_Type
    is
       pragma Unreferenced (Container);
    begin
       return (Element => Position.Node.all.Element'Access, Dummy => 1);
-   end Constant_Reference;
+   end Constant_Ref;
 
-   function Constant_Reference
-     (Container : aliased in Tree;
-      Key       :         in Key_Type)
+   function Constant_Ref
+     (Container : in Tree;
+      Key       : in Key_Type)
      return Constant_Reference_Type
    is
       Node : constant Node_Access := Find (Container.Root, Key, Container.Nil);
@@ -318,28 +450,28 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       if Node = null then
          raise Not_Found;
       else
-         --  WORKAROUND: GNAT Community 2019 requires Node.all.Element'Access
-         --  here, Community 2020 and GNAT Pro 21.0w 20200426 requires
-         --  Node.Element'Access (no .all). The code is technically legal
-         --  either way, so both compilers have a bug. This code is compatible
-         --  with 2020. AdaCore ticket T503-001 on Eurocontrol support
-         --  contract.
+         --  WORKAROUND: GNAT Community 2019 requires Node.all.Element here,
+         --  GNAT Community 2020 and GNAT Pro 21.0w 20200426 require .all _not_
+         --  be here. The code is technically legal either way, so both
+         --  compilers have a bug. Matching 2020 for now. GNAT Pro 22, GNAT
+         --  Community 2021 fix the bug. AdaCore ticket T503-001 on Eurocontrol
+         --  support contract.
          return (Element => Node.Element'Access, Dummy => 1);
       end if;
-   end Constant_Reference;
+   end Constant_Ref;
 
-   function Variable_Reference
+   function Variable_Ref
      (Container : aliased in Tree;
       Position  :         in Cursor)
      return Variable_Reference_Type
    is
       pragma Unreferenced (Container);
    begin
-      --  WORKAROUND: see note in Constant_Reference
+      --  WORKAROUND: see note in Constant_Ref
       return (Element => Position.Node.Element'Access, Dummy => 1);
-   end Variable_Reference;
+   end Variable_Ref;
 
-   function Variable_Reference
+   function Variable_Ref
      (Container : aliased in Tree;
       Key       :         in Key_Type)
      return Variable_Reference_Type
@@ -349,20 +481,37 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       if Node = null then
          raise Not_Found;
       else
-         --  WORKAROUND: see note in Constant_Reference
+         --  WORKAROUND: see note in Constant_Ref
          return (Element => Node.Element'Access, Dummy => 1);
       end if;
-   end Variable_Reference;
+   end Variable_Ref;
 
-   function Iterate (Tree : in Pkg.Tree'Class) return Iterator
+   function Unchecked_Const_Ref
+     (Container : in Tree;
+      Position  : in Cursor)
+     return access constant Element_Type
+   is
+      pragma Unreferenced (Container);
+   begin
+      return Position.Node.all.Element'Access;
+   end Unchecked_Const_Ref;
+
+   function Unchecked_Var_Ref (Container : in Tree; Position  : in Cursor) return access Element_Type
+   is
+      pragma Unreferenced (Container);
+   begin
+      return Position.Node.all.Element'Access;
+   end Unchecked_Var_Ref;
+
+   function Iterate (Tree : aliased in Pkg.Tree'Class) return Iterator
    is begin
-      return (Tree.Root, Tree.Nil);
+      return (Container => Tree'Access);
    end Iterate;
 
    overriding function First (Iterator : in Pkg.Iterator) return Cursor
    is
-      Nil  : Node_Access renames Iterator.Nil;
-      Node : Node_Access := Iterator.Root;
+      Nil  : Node_Access renames Iterator.Container.Nil;
+      Node : Node_Access := Iterator.Container.Root;
    begin
       if Node = Nil then
          return
@@ -382,12 +531,11 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
             Left_Done  => True,
             Right_Done => False);
       end if;
-
    end First;
 
    overriding function Next (Iterator : in Pkg.Iterator; Position : in Cursor) return Cursor
    is
-      Nil : Node_Access renames Iterator.Nil;
+      Nil : Node_Access renames Iterator.Container.Nil;
    begin
       if Position.Direction /= Ascending then
          raise Programmer_Error;
@@ -460,8 +608,8 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
 
    overriding function Last (Iterator : in Pkg.Iterator) return Cursor
    is
-      Nil  : Node_Access renames Iterator.Nil;
-      Node : Node_Access := Iterator.Root;
+      Nil  : Node_Access renames Iterator.Container.Nil;
+      Node : Node_Access := Iterator.Container.Root;
    begin
       if Node = Nil then
          return
@@ -484,7 +632,7 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
 
    overriding function Previous (Iterator : in Pkg.Iterator; Position : in Cursor) return Cursor
    is
-      Nil : Node_Access renames Iterator.Nil;
+      Nil : Node_Access renames Iterator.Container.Nil;
    begin
       if Position.Direction /= Descending then
          raise Programmer_Error;
@@ -557,8 +705,8 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
 
    function Previous (Iterator : in Pkg.Iterator; Key : in Key_Type) return Cursor
    is
-      Nil  : Node_Access renames Iterator.Nil;
-      Node : Node_Access := Iterator.Root;
+      Nil  : Node_Access renames Iterator.Container.Nil;
+      Node : Node_Access := Iterator.Container.Root;
    begin
       while Node /= Nil loop
          declare
@@ -598,8 +746,8 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       Direction : in Direction_Type := Ascending)
      return Cursor
    is
-      Nil  : Node_Access renames Iterator.Nil;
-      Node : constant Node_Access := Find (Iterator.Root, Key, Nil);
+      Nil  : Node_Access renames Iterator.Container.Nil;
+      Node : constant Node_Access := Find (Iterator.Container.Root, Key, Nil);
    begin
       if Node = null then
          return
@@ -622,14 +770,25 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       end if;
    end Find;
 
+   function Find
+     (Container : in Tree;
+      Key       : in Key_Type;
+      Direction : in Direction_Type := Ascending)
+     return Cursor
+   is
+      Iter : constant Iterator := Container.Iterate;
+   begin
+      return Find (Iter, Key, Direction);
+   end Find;
+
    function Find_In_Range
      (Iterator    : in Pkg.Iterator;
       Direction   : in Known_Direction_Type;
       First, Last : in Key_Type)
      return Cursor
    is
-      Nil       : Node_Access renames Iterator.Nil;
-      Node      : Node_Access := Iterator.Root;
+      Nil       : Node_Access renames Iterator.Container.Nil;
+      Node      : Node_Access := Iterator.Container.Root;
       Candidate : Node_Access := null; -- best result found so far
    begin
       while Node /= Nil loop
@@ -723,104 +882,85 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
    end Find_In_Range;
 
    function Count (Tree : in Pkg.Tree) return Ada.Containers.Count_Type
-   is begin
+   is
+      Count     : Ada.Containers.Count_Type := 0;
+      Max_Depth : Ada.Containers.Count_Type := 0;
+   begin
       if Tree.Root = Tree.Nil then
          return 0;
       else
-         return Count_Tree (Tree.Root, Tree.Nil);
+         Count_Tree (Tree.Root, Tree.Nil, Count, Max_Depth, 1);
+         return Count;
       end if;
    end Count;
 
+   procedure Count_Depth
+     (Tree  : in     Pkg.Tree;
+      Count :    out Ada.Containers.Count_Type;
+      Depth :    out Ada.Containers.Count_Type)
+   is begin
+      Count := 0;
+      Depth := 0;
+
+      if Tree.Root = Tree.Nil then
+         null;
+      else
+         Count_Tree (Tree.Root, Tree.Nil, Count, Depth, 1);
+      end if;
+   end Count_Depth;
+
    function Present (Container : in Tree; Key : in Key_Type) return Boolean
    is
-      Nil  : Node_Access renames Container.Nil;
-      Node : Node_Access := Container.Root;
+      Node : constant Node_Access := Find (Container.Root, Key, Container.Nil);
    begin
-      while Node /= Nil loop
-         case Key_Compare (Key, Pkg.Key (Node.Element)) is
-         when Equal =>
-            return True;
-         when Less =>
-            Node := Node.Left;
-         when Greater =>
-            Node := Node.Right;
-         end case;
-      end loop;
-      return False;
+      return Node /= null;
    end Present;
 
-   function Insert (Tree : in out Pkg.Tree; Element : in Element_Type) return Cursor
+   function Insert
+     (Tree      : in out Pkg.Tree;
+      Element   : in     Element_Type;
+      Duplicate : in     Duplicate_Action_Type := Error)
+     return Cursor
    is
-      --  [1] 13.3 RB-Insert (T, z)
-      Nil   : Node_Access renames Tree.Nil;
-      Z     : Node_Access       := new Node'(Element, Nil, Nil, Nil, Red);
-      Key_Z : constant Key_Type := Key (Z.Element);
-      Y     : Node_Access       := Nil;
-      X     : Node_Access       := Tree.Root;
-
-      Result      : Node_Access;
-      Compare_Z_Y : Compare_Result;
+      Found : Boolean;
    begin
-      Nil.Parent := null;
-      Nil.Left   := null;
-      Nil.Right  := null;
-
-      while X /= Nil loop
-         Y := X;
-         Compare_Z_Y := Key_Compare (Key_Z, Key (X.Element));
-         case Compare_Z_Y is
-         when Less =>
-            X := X.Left;
-         when Equal | Greater =>
-            X := X.Right;
-         end case;
-      end loop;
-
-      Z.Parent := Y;
-      if Y = Nil then
-         Tree.Root := Z;
-      else
-         case Compare_Z_Y is
-         when Less =>
-            Y.Left := Z;
-         when Equal | Greater =>
-            Y.Right := Z;
-         end case;
-      end if;
-
-      Result := Z;
-      if Z = Tree.Root then
-         Z.Color := Black;
-      else
-         Insert_Fixup (Tree, Z);
-      end if;
-
-      return
-        (Node       => Result,
-         Direction  => Unknown,
-         Left_Done  => True,
-         Right_Done => True);
+      return Find_Or_Insert (Tree, Element, Found, Duplicate, No_Find => True);
    end Insert;
 
-   procedure Insert (Tree : in out Pkg.Tree; Element : in Element_Type)
+   procedure Insert
+     (Tree      : in out Pkg.Tree;
+      Element   : in     Element_Type;
+      Duplicate : in     Duplicate_Action_Type := Error)
    is
-      Temp : Cursor := Insert (Tree, Element);
+      Temp : Cursor := Insert (Tree, Element, Duplicate);
       pragma Unreferenced (Temp);
    begin
       null;
    end Insert;
 
-   procedure Delete (Tree : in out Pkg.Tree; Position : in out Cursor)
+   function Find_Or_Insert
+     (Tree    : in out Pkg.Tree;
+      Element : in     Element_Type;
+      Found   :    out Boolean)
+     return Cursor
+   is begin
+      return Find_Or_Insert (Tree, Element, Found, Duplicate => Ignore, No_Find => False);
+   end Find_Or_Insert;
+
+   procedure Delete (Tree : in out Pkg.Tree; Key : in Key_Type)
    is
       Nil          : Node_Access renames Tree.Nil;
       T            : Pkg.Tree renames Tree;
-      Z            : constant Node_Access :=
-        (if Position.Node = null then raise Parameter_Error else Position.Node);
+      Z            : constant Node_Access := Find (Tree.Root, Key, Tree.Nil);
       Y            : Node_Access          := Z;
-      Y_Orig_Color : Color                := Y.Color;
+      Y_Orig_Color : Color := (if Y = null then Color'First else Y.Color);
       X            : Node_Access;
    begin
-      --  Catch logic errors in use of Nil
+      if Z = null then
+         raise SAL.Not_Found;
+      end if;
+
+      --  Catch logic errors in use of Nil; these should never be referenced.
       Nil.Parent := null;
       Nil.Left   := null;
       Nil.Right  := null;
@@ -864,8 +1004,6 @@ package body SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       if Y_Orig_Color = Black then
          Delete_Fixup (T, X);
       end if;
-
-      Free (Position.Node);
    end Delete;
 
 end SAL.Gen_Unbounded_Definite_Red_Black_Trees;

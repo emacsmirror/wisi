@@ -1,6 +1,6 @@
 ;;; wisi-prj.el --- project integration -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2019 - 2020  Free Software Foundation, Inc.
+;; Copyright (C) 2019 - 2021  Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
 ;;
@@ -185,8 +185,9 @@ slow refresh operations may be skipped."
   nil)
 
 (cl-defgeneric wisi-xref-completion-table (xref project)
-  "Return a completion table of names defined in PROJECT, for navigating to the declarations.
-The table is an alist of (ANNOTATED-SYMBOL . LOC), where:
+  "Return a completion table of names defined in PROJECT,
+for navigating to the declarations.  The table is an alist
+of (ANNOTATED-SYMBOL . LOC), where:
 
 - ANNOTATED-SYMBOL is the simple name and possibly annotations
 such as function arguments, controlling type, containing package,

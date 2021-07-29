@@ -2,7 +2,7 @@
 --
 --  see spec
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -68,7 +68,8 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
          Free (Container.Head);
          Container.Head := Next;
       end loop;
-      Container.Tail := null;
+      Container.Tail  := null;
+      Container.Count := 0;
    end Finalize;
 
    function Length (Container : in List) return SAL.Base_Peek_Type

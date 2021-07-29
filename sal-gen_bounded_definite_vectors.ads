@@ -2,7 +2,7 @@
 --
 --  A simple bounded vector of definite items, in Spark.
 --
---  Copyright (C) 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -20,6 +20,9 @@ pragma License (Modified_GPL);
 generic
    type Index_Type is range <>;
    type Element_Type is private;
+   Default_Element : in Element_Type;
+   --  Only used in Empty_Vector
+
    Capacity : in Ada.Containers.Count_Type;
 package SAL.Gen_Bounded_Definite_Vectors
   with Spark_Mode
@@ -36,6 +39,10 @@ is
 
    type Vector is private with
      Default_Initial_Condition => Length (Vector) = 0;
+   --  Not 'tagged' because SPARK in Gnat Community 2019 does not support
+   --  type invariant on tagged type.
+
+   Empty_Vector : constant Vector;
 
    function Length (Container : in Vector) return Ada.Containers.Count_Type with
      Post => Length'Result in 0 .. Capacity;
@@ -68,6 +75,9 @@ is
      Pre  => Index <= Last_Index (Container),
      Post => Element (Container, Index) = New_Item;
    --  Index of first element in Vector is Index_Type'First.
+
+   function To_Vector (Element : in Element_Type) return Vector with
+     Post => Length (To_Vector'Result) = 1;
 
    procedure Append (Container : in out Vector; New_Item : in Element_Type) with
      Pre  => Length (Container) < Capacity,
@@ -123,9 +133,18 @@ is
                 Element (Container'Old, Index_Type (Integer (I) + Integer (Count))) = Element (Container, I));
    --  Remaining elements slide down.
 
+   procedure Delete_Last (Container : in out Vector; Count : in Ada.Containers.Count_Type := 1) with
+     Pre  => Length (Container) >= Count,
+     Post => Length (Container) = Length (Container)'Old - Count and then
+             (for all I in Index_Type'First .. Last_Index (Container) =>
+                Element (Container'Old, I) = Element (Container, I));
+
 private
 
    type Array_Type is array (Peek_Type range 1 .. Peek_Type (Capacity)) of aliased Element_Type;
+
+   function To_Peek_Index (Index : in Extended_Index) return Base_Peek_Type is
+     (Base_Peek_Type (Index - Index_Type'First + 1));
 
    type Vector is
    record
@@ -136,10 +155,10 @@ private
    pragma Annotate (GNATprove, Intentional, "type ""Vector"" is not fully initialized",
                     "Only items in Elements with index < Last are accessed");
 
-   ----------
-   --  For child units
-
-   function To_Peek_Index (Index : in Extended_Index) return Base_Peek_Type is
-     (Base_Peek_Type (Index - Index_Type'First + 1));
+   --  We require Default_Element for this because SPARK in GNAT Community 2019 doesn't
+   --  support <> here.
+   Empty_Vector : constant Vector :=
+     (Last     => No_Index,
+      Elements => (others => Default_Element));
 
 end SAL.Gen_Bounded_Definite_Vectors;

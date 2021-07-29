@@ -1,6 +1,6 @@
 ;;; wisi-parse-common.el --- declarations used by wisi-parse.el, wisi-ada-parse.el, and wisi.el -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2014, 2015, 2017 - 2019  Free Software Foundation, Inc.
+;; Copyright (C) 2014, 2015, 2017 - 2019, 2021  Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
 ;;
@@ -127,9 +127,9 @@ Return nil if no match found before eob."
 If using an external parser, send it BEGIN thru SEND-END.")
 
 (cl-defgeneric wisi-refactor ((parser wisi-parser) refactor-action parse-begin parse-end edit-begin)
-  "Send parser command to perform REFACTOR-ACTION on region PARSE-BEGIN PARSE-END at point EDIT_BEGIN.
-The parse region is not expanded first; it must be the statement
-or declaration containing EDIT_BEGIN.")
+  "Perform REFACTOR-ACTION at point EDIT_BEGIN.
+STMT-START, STMT-END are the start and end positions of the
+statement containing EDIT_BEGIN.")
 
 (cl-defgeneric wisi-parse-kill ((parser wisi-parser))
   "Kill any external process associated with parser.")

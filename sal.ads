@@ -9,7 +9,7 @@
 --
 --  Contact Stephe at stephen_leake@stephe-leake.org.
 --
---  Copyright (C) 1997 - 2004, 2008, 2009, 2015, 2017, 2018 Free Software Foundation, Inc.
+--  Copyright (C) 1997 - 2004, 2008, 2009, 2015, 2017, 2018, 2020 Free Software Foundation, Inc.
 --
 --  SAL is free software; you can redistribute it and/or modify it
 --  under terms of the GNU General Public License as published by the
@@ -62,6 +62,7 @@ package SAL is
    type Direction_Type is (Forward, Backward);
 
    type Duplicate_Action_Type is (Allow, Ignore, Error);
+   subtype Ignore_Error_Type is Duplicate_Action_Type range Ignore .. Error;
 
    type Overflow_Action_Type is (Overwrite, Error);
 
@@ -72,4 +73,7 @@ package SAL is
    Invalid_Peek_Index : constant Base_Peek_Type := 0;
 
    type Compare_Result is (Less, Equal, Greater);
+
+   function String_Compare (Left, Right : in String) return Compare_Result;
+
 end SAL;

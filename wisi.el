@@ -212,7 +212,8 @@ If PARSE-RESULT is non-nil, use it instead of calling `syntax-ppss'."
    (cons 'face t)
    (cons 'navigate t)
    (cons 'indent t))
-  "Non-nil when parse is needed because text has changed - cleared when parse succeeds.")
+  "Non-nil when parse is needed due to text change.
+Cleared when parse succeeds.")
 
 (defun wisi-parse-try (&optional parse-action)
   (cdr (assoc (or parse-action wisi--parse-action) wisi--parse-try)))

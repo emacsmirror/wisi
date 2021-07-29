@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2019 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2019 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -55,13 +55,13 @@ package body SAL.Gen_Unbounded_Definite_Vectors_Sorted is
       --  on the stack.
 
       for I in New_First .. Old_First - 1 loop
-         New_Array (I .. I) := (others => <>);
+         New_Array (I) := Default_Element;
       end loop;
 
       New_Array (Old_First .. Old_Last) := Elements.all;
 
       for I in Old_Last + 1 .. New_Last loop
-         New_Array (I .. I)   := (others => <>);
+         New_Array (I) := Default_Element;
       end loop;
 
       Free (Elements);

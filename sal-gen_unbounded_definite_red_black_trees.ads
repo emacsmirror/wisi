@@ -3,12 +3,19 @@
 --  Generic unbounded red-black tree with definite elements, definite
 --  or indefinite key.
 --
+--  Design:
+--
+--  We don't enforce any control of references active on a tree; that
+--  proved buggy, slow, and not helpful in finding higher-level bugs.
+--  The only real problem is references to a deleted node, which is
+--  easy to keep track of.
+--
 --  References :
 --
 --  [1] Introduction to Algorithms, Thomas H. Cormen, Charles E.
 --  Leiserson, Ronald L. Rivest, Clifford Stein.
 --
---  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -35,15 +42,21 @@ package SAL.Gen_Unbounded_Definite_Red_Black_Trees is
 
    package Pkg renames Gen_Unbounded_Definite_Red_Black_Trees;
 
-   type Tree is new Ada.Finalization.Limited_Controlled with private
+   type Tree is new Ada.Finalization.Controlled with private
    with
-     Constant_Indexing => Constant_Reference,
-     Variable_Indexing => Variable_Reference,
+     Constant_Indexing => Constant_Ref,
+     Variable_Indexing => Variable_Ref,
      Default_Iterator  => Iterate,
      Iterator_Element  => Element_Type;
 
    overriding procedure Finalize (Object : in out Tree);
    overriding procedure Initialize (Object : in out Tree);
+   overriding procedure Adjust (Object : in out Tree);
+
+   Empty_Tree : constant Tree;
+
+   procedure Clear (Tree : in out Pkg.Tree);
+   --  Set Tree to empty.
 
    type Direction_Type is (Ascending, Descending, Unknown);
    subtype Known_Direction_Type is Direction_Type range Ascending .. Descending;
@@ -57,49 +70,60 @@ package SAL.Gen_Unbounded_Definite_Red_Black_Trees is
    No_Element : constant Cursor;
 
    function Has_Element (Cursor : in Pkg.Cursor) return Boolean;
+   function Direction (Cursor : in Pkg.Cursor) return Direction_Type;
+   function Key (Cursor : in Pkg.Cursor) return Key_Type;
+   function Element (Cursor : in Pkg.Cursor) return Element_Type;
 
    type Constant_Reference_Type (Element : not null access constant Element_Type) is private with
      Implicit_Dereference => Element;
 
-   function Constant_Reference
-     (Container : aliased in Tree;
-      Position  :         in Cursor)
-     return Constant_Reference_Type with
-     Inline, Pre => Has_Element (Position);
+   function Constant_Ref
+     (Container : in Tree;
+      Position  : in Cursor)
+     return Constant_Reference_Type
+   with Inline, Pre => Has_Element (Position);
 
-   function Constant_Reference
-     (Container : aliased in Tree;
-      Key       :         in Key_Type)
-     return Constant_Reference_Type with
-     Inline;
+   function Constant_Ref
+     (Container : in Tree;
+      Key       : in Key_Type)
+     return Constant_Reference_Type
+   with Inline;
    --  Raises Not_Found if Key not found in Container.
 
    type Variable_Reference_Type (Element : not null access Element_Type) is private with
      Implicit_Dereference => Element;
+   --  User must not change value of Key thru this reference; if Key is
+   --  changed, use Delete, Insert.
 
-   function Variable_Reference
+   function Variable_Ref
      (Container : aliased in Tree;
       Position  :         in Cursor)
-     return Variable_Reference_Type with
-     Inline, Pre => Has_Element (Position);
+     return Variable_Reference_Type
+   with Inline, Pre => Has_Element (Position);
 
-   function Variable_Reference
+   function Variable_Ref
      (Container : aliased in Tree;
       Key       :         in Key_Type)
-     return Variable_Reference_Type with
-     Inline;
+     return Variable_Reference_Type
+   with Inline;
    --  Raises Not_Found if Key not found in Container.
+
+   function Unchecked_Const_Ref (Container : in Tree; Position  : in Cursor) return access constant Element_Type;
+   function Unchecked_Var_Ref (Container : in Tree; Position  : in Cursor) return access Element_Type;
+   --  For higher level containers.
 
    package Iterators is new Ada.Iterator_Interfaces (Cursor, Has_Element);
 
-   type Iterator is new Iterators.Reversible_Iterator with private;
+   type Iterator (Container : not null access constant Tree) is new Iterators.Reversible_Iterator with private;
 
-   function Iterate (Tree : in Pkg.Tree'Class) return Iterator;
+   function Iterate (Tree : aliased in Pkg.Tree'Class) return Iterator;
 
    overriding function First (Iterator : in Pkg.Iterator) return Cursor;
-   overriding function Next (Iterator : in Pkg.Iterator; Position : in Cursor) return Cursor;
+   overriding function Next (Iterator : in Pkg.Iterator; Position : in Cursor) return Cursor
+   with Pre => Has_Element (Position) and Direction (Position) /= Unknown;
    overriding function Last (Iterator : in Pkg.Iterator) return Cursor;
-   overriding function Previous (Iterator : in Pkg.Iterator; Position : in Cursor) return Cursor;
+   overriding function Previous (Iterator : in Pkg.Iterator; Position : in Cursor) return Cursor
+   with Pre => Has_Element (Position) and Direction (Position) /= Unknown;
 
    function Previous (Iterator : in Pkg.Iterator; Key : in Key_Type) return Cursor;
    --  Initialise Iterator to descending, starting at element with
@@ -112,6 +136,13 @@ package SAL.Gen_Unbounded_Definite_Red_Black_Trees is
       Direction : in Direction_Type := Ascending)
      return Cursor;
    --  Has_Element is False if Key is not in Container.
+
+   function Find
+     (Container : in Tree;
+      Key       : in Key_Type;
+      Direction : in Direction_Type := Ascending)
+     return Cursor;
+   --  Creates an Iterator internally.
 
    function Find_In_Range
      (Iterator    : in Pkg.Iterator;
@@ -127,15 +158,52 @@ package SAL.Gen_Unbounded_Definite_Red_Black_Trees is
    --  those for any element that Next or Previous returns.
 
    function Count (Tree : in Pkg.Tree) return Ada.Containers.Count_Type;
+   function Length (Tree : in Pkg.Tree) return Ada.Containers.Count_Type
+     renames Count;
+   procedure Count_Depth
+     (Tree  : in     Pkg.Tree;
+      Count :    out Ada.Containers.Count_Type;
+      Depth :    out Ada.Containers.Count_Type);
+   --  Count and Count_Depth traverse the entire tree.
 
    function Present (Container : in Tree; Key : in Key_Type) return Boolean;
 
-   procedure Insert (Tree : in out Pkg.Tree; Element : in Element_Type);
-   function Insert (Tree : in out Pkg.Tree; Element : in Element_Type) return Cursor;
-   --  Result points to newly inserted element.
+   procedure Insert
+     (Tree      : in out Pkg.Tree;
+      Element   : in     Element_Type;
+      Duplicate : in     Duplicate_Action_Type := Error);
+   function Insert
+     (Tree      : in out Pkg.Tree;
+      Element   : in     Element_Type;
+      Duplicate : in     Duplicate_Action_Type := Error)
+     return Cursor;
+   --  Result points to newly inserted element, with Direction Unknown.
+   --
+   --  If Key (Element) is found, and Duplicate is:
+   --
+   --  - Allow, Element is inserted; it can only by retrieved using
+   --  Iterate.
+   --
+   --  - Ignore, Element is not inserted.
+   --
+   --  - Error, raises Duplicate_Key.
 
-   procedure Delete (Tree : in out Pkg.Tree; Position : in out Cursor);
-   --  Delete element at Position, set Position to No_Element.
+   function Find_Or_Insert
+     (Tree    : in out Pkg.Tree;
+      Element : in     Element_Type;
+      Found   :    out Boolean)
+     return Cursor;
+   --  Search for Element; if found, Found is True. If not found, insert
+   --  it. Return a Cursor to the found or inserted element. , and return
+   --  a cursor for it.
+
+   procedure Delete (Tree : in out Pkg.Tree; Key : in Key_Type);
+   --  Delete element with Key.
+   --
+   --  Raises SAL.Not_Found if Key is not found.
+   --
+   --  Invalidates any active iterators; not enforced.
+
 private
 
    type Node;
@@ -153,11 +221,11 @@ private
 
    procedure Free is new Ada.Unchecked_Deallocation (Node, Node_Access);
 
-   type Tree is new Ada.Finalization.Limited_Controlled with record
+   type Tree is new Ada.Finalization.Controlled with record
       Root : Node_Access;
       Nil  : Node_Access;
       --  Nil is the node pointed to by all links that would otherwise be
-      --  'null'. This simplifies several algorithm (for example,
+      --  'null'. This simplifies several algorithms (for example,
       --  Node.Left.Color is always valid). Its parent, left, right links
       --  are used as temp storage for some algorithms (especially Delete).
       --  Nil.Color is Black.
@@ -173,15 +241,29 @@ private
       Right_Done : Boolean := True;
    end record;
 
-   type Constant_Reference_Type (Element : not null access constant Element_Type) is
-   record
+   function Has_Element (Cursor : in Pkg.Cursor) return Boolean
+   is (Cursor.Node /= null);
+
+   function Direction (Cursor : in Pkg.Cursor) return Direction_Type
+   is (Cursor.Direction);
+
+   function Key (Cursor : in Pkg.Cursor) return Key_Type
+   is (Key (Cursor.Node.Element));
+
+   function Element (Cursor : in Pkg.Cursor) return Element_Type
+   is (Cursor.Node.Element);
+
+   type Constant_Reference_Type (Element : not null access constant Element_Type)
+   is record
       Dummy : Integer := raise Program_Error with "uninitialized reference";
    end record;
 
-   type Variable_Reference_Type (Element : not null access Element_Type) is
-   record
+   type Variable_Reference_Type (Element : not null access Element_Type)
+   is record
       Dummy : Integer := raise Program_Error with "uninitialized reference";
    end record;
+
+   Empty_Tree : constant Tree := (Ada.Finalization.Controlled with null, null);
 
    No_Element : constant Cursor :=
      (Node       => null,
@@ -189,10 +271,7 @@ private
       Left_Done  => True,
       Right_Done => True);
 
-   type Iterator is new Iterators.Reversible_Iterator with
-   record
-      Root : Node_Access;
-      Nil  : Node_Access;
-   end record;
+   type Iterator (Container : not null access constant Tree) is new Iterators.Reversible_Iterator
+     with null record;
 
 end SAL.Gen_Unbounded_Definite_Red_Black_Trees;

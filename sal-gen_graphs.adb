@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2017, 2019 Free Software Foundation All Rights Reserved.
+--  Copyright (C) 2017, 2019, 2020 Free Software Foundation All Rights Reserved.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -562,7 +562,7 @@ package body SAL.Gen_Graphs is
                Next (Cur);
             end loop;
 
-            A_K.Clear;
+            A_K.Clear (Free_Memory => True);
             if Has_Element (Least_Vertex_Cur) then
                declare
                   Component : Vertex_Lists.List renames Components (Least_Vertex_Cur);

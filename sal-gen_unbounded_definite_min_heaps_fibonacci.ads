@@ -7,7 +7,7 @@
 --  [1] Introduction to Algorithms, Third Edition. Thomas H. Cormen,
 --  Charles E. Leiserson, Ronald L. Rivest, Clifford Stein. Chapter 19.
 --
---  Copyright (C) 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -70,7 +70,8 @@ package SAL.Gen_Unbounded_Definite_Min_Heaps_Fibonacci is
    type Constant_Reference_Type (Element : not null access constant Element_Type) is private with
      Implicit_Dereference => Element;
 
-   function Peek (Heap : in Heap_Type) return Constant_Reference_Type;
+   function Peek (Heap : in Heap_Type) return Constant_Reference_Type
+   with Pre => Heap.Count > 0;
    --  Return a constant reference to the min element.
    pragma Inline (Peek);
 

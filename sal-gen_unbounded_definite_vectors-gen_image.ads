@@ -2,7 +2,7 @@
 --
 --  Image of parent.
 --
---  Copyright (C) 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2018, 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -19,6 +19,14 @@ pragma License (Modified_GPL);
 
 generic
    with function Element_Image (Item : in Element_Type) return String;
-function SAL.Gen_Unbounded_Definite_Vectors.Gen_Image (Item : in Vector; Strict : in Boolean := False) return String;
---  Image of Item, in Ada aggregate syntax. If Strict, use correct
---  syntax for 0 and 1 item; otherwise, use () and (item).
+function SAL.Gen_Unbounded_Definite_Vectors.Gen_Image
+  (Item        : in Vector;
+   Strict      : in Boolean := False;
+   Association : in Boolean := False)
+  return String;
+--  Image of Item, in Ada aggregate syntax.
+--
+--  If Strict, use correct syntax for 0 and 1 item; otherwise, use ()
+--  and (item).
+--
+--  If Association, use associative syntax, otherwise use positional.

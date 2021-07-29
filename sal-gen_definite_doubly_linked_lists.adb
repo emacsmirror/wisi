@@ -2,7 +2,7 @@
 --
 --  see spec
 --
---  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -82,7 +82,8 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists is
          Free (Container.Head);
          Container.Head := Next;
       end loop;
-      Container.Tail := null;
+      Container.Tail  := null;
+      Container.Count := 0;
    end Finalize;
 
    function Length (Container : in List) return Ada.Containers.Count_Type
@@ -158,39 +159,22 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists is
 
    procedure Next (Position : in out Cursor)
    is begin
-      if Position.Ptr /= null then
-         if Position.Ptr.Next = null then
-            Position.Ptr := null;
-         else
-            Position.Ptr := Position.Ptr.Next;
-         end if;
-      end if;
+      Position.Ptr := Position.Ptr.Next;
    end Next;
 
    function Next (Position : in Cursor) return Cursor
    is begin
-      if Position.Ptr = null then
-         return Position;
-      else
-         if Position.Ptr.Next = null then
-            return (Ptr => null);
-         else
-            return (Ptr => Position.Ptr.Next);
-         end if;
-      end if;
+      return (Ptr => Position.Ptr.Next);
    end Next;
+
+   procedure Previous (Position : in out Cursor)
+   is begin
+      Position.Ptr := Position.Ptr.Prev;
+   end Previous;
 
    function Previous (Position : in Cursor) return Cursor
    is begin
-      if Position.Ptr = null then
-         return Position;
-      else
-         if Position.Ptr.Prev = null then
-            return (Ptr => null);
-         else
-            return (Ptr => Position.Ptr.Prev);
-         end if;
-      end if;
+      return (Ptr => Position.Ptr.Prev);
    end Previous;
 
    function Element (Position : in Cursor) return Element_Type
@@ -216,44 +200,65 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists is
       Container.Count := Container.Count - 1;
    end Delete_First;
 
+   function Append (Container : in out List; Element : in Element_Type) return Cursor
+   is begin
+      Append (Container, Element);
+      return (Ptr => Container.Tail);
+   end Append;
+
+   function Insert
+     (Container : in out List;
+      Before    : in     Cursor;
+      Element   : in     Element_Type)
+     return Cursor
+   is
+      use all type Ada.Containers.Count_Type;
+   begin
+      if Before = (Ptr => null) then
+         return Container.Append (Element);
+      else
+         return Result : Cursor do
+            if Before.Ptr = Container.Head then
+               declare
+                  --  old list: before ...
+                  --  newlist:  new  before ...
+                  New_Node : constant Node_Access := new Node_Type'
+                    (Element => Element,
+                     Prev    => null,
+                     Next    => Before.Ptr);
+               begin
+                  Before.Ptr.Prev := New_Node;
+                  Container.Head  := New_Node;
+                  Result.Ptr := New_Node;
+               end;
+            else
+               declare
+                  --  old list: ... prev  before ...
+                  --  newlist:  ... prev  new  before ...
+                  New_Node : constant Node_Access := new Node_Type'
+                    (Element => Element,
+                     Prev    => Before.Ptr.Prev,
+                     Next    => Before.Ptr);
+               begin
+                  Before.Ptr.Prev.Next := New_Node;
+                  Before.Ptr.Prev      := New_Node;
+                  Result.Ptr := New_Node;
+               end;
+            end if;
+            Container.Count := Container.Count + 1;
+         end return;
+      end if;
+   end Insert;
+
    procedure Insert
      (Container : in out List;
       Before    : in     Cursor;
       Element   : in     Element_Type)
    is
-      use all type Ada.Containers.Count_Type;
+      Junk : Cursor := Insert (Container, Before, Element);
+      pragma Unreferenced (Junk);
    begin
-      if Before = (Ptr => null) then
-         Container.Append (Element);
-      else
-         if Before.Ptr = Container.Head then
-            declare
-               --  old list: before ...
-               --  newlist:  new  before ...
-               New_Node : constant Node_Access := new Node_Type'
-                 (Element => Element,
-                  Prev    => null,
-                  Next    => Before.Ptr);
-            begin
-               Before.Ptr.Prev := New_Node;
-               Container.Head  := New_Node;
-            end;
-         else
-            declare
-               --  old list: ... prev  before ...
-               --  newlist:  ... prev  new  before ...
-               New_Node : constant Node_Access := new Node_Type'
-                 (Element => Element,
-                  Prev    => Before.Ptr.Prev,
-                  Next    => Before.Ptr);
-            begin
-               Before.Ptr.Prev.Next := New_Node;
-               Before.Ptr.Prev      := New_Node;
-
-            end;
-         end if;
-         Container.Count := Container.Count + 1;
-      end if;
+      null;
    end Insert;
 
    function Persistent_Ref (Position : in Cursor) return access Element_Type

@@ -3,7 +3,7 @@
 --  A generic doubly linked list with definite elements, allowing
 --  permanent references to elements.
 --
---  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -75,6 +75,10 @@ package SAL.Gen_Definite_Doubly_Linked_Lists is
 
    function Next (Position : in Cursor) return Cursor
    with Pre => Has_Element (Position);
+
+   procedure Previous (Position : in out Cursor)
+   with Pre => Has_Element (Position);
+
    function Previous (Position : in Cursor) return Cursor
    with Pre => Has_Element (Position);
 
@@ -86,10 +90,17 @@ package SAL.Gen_Definite_Doubly_Linked_Lists is
 
    procedure Delete_First (Container : in out List);
 
+   function Append (Container : in out List; Element : in Element_Type) return Cursor;
+
    procedure Insert
      (Container : in out List;
       Before    : in     Cursor;
       Element   : in     Element_Type);
+   function Insert
+     (Container : in out List;
+      Before    : in     Cursor;
+      Element   : in     Element_Type)
+     return Cursor;
    --  If Before is No_Element, insert after Last.
 
    function Persistent_Ref (Position : in Cursor) return access Element_Type
