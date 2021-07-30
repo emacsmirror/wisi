@@ -9,7 +9,7 @@
 --
 --  See wisitoken.ads
 --
---  Copyright (C) 2002, 2003, 2009, 2010, 2013 - 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2002, 2003, 2009, 2010, 2013 - 2015, 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -111,7 +111,7 @@ package WisiToken.Parse.LR is
    function Compare (Left, Right : in Token_ID) return SAL.Compare_Result;
 
    package Action_Arrays is new SAL.Gen_Unbounded_Definite_Vectors_Sorted
-     (Action_Node, Token_ID, To_Key, Compare);
+     (Action_Node, Token_ID, To_Key, Compare, Default_Element => (others => <>));
 
    procedure Add
      (List   : in out Action_Arrays.Vector;
@@ -120,14 +120,14 @@ package WisiToken.Parse.LR is
    --  Add action to List, sorted on ascending Symbol.
 
    type Goto_Node is record
-      Symbol : Token_ID;
-      State  : State_Index;
+      Symbol : Token_ID    := Invalid_Token_ID;
+      State  : State_Index := State_Index'Last;
    end record;
 
    function To_Key (Item : in Goto_Node) return Token_ID is (Item.Symbol);
 
    package Goto_Arrays is  new SAL.Gen_Unbounded_Definite_Vectors_Sorted
-     (Goto_Node, Token_ID, To_Key, Compare);
+     (Goto_Node, Token_ID, To_Key, Compare, Default_Element => (others => <>));
 
    type Kernel_Info is record
       Production       : Production_ID;
@@ -363,7 +363,7 @@ package WisiToken.Parse.LR is
    --  parser, not virtual nonterms produced by recover.
 
    package Fast_Token_ID_Arrays is new SAL.Gen_Bounded_Definite_Vectors
-     (SAL.Peek_Type, Token_ID, Capacity => 20);
+     (SAL.Peek_Type, Token_ID, Default_Element => Invalid_Token_ID, Capacity => 20);
 
    No_Insert_Delete : constant SAL.Base_Peek_Type := 0;
 
@@ -454,7 +454,7 @@ package WisiToken.Parse.LR is
    --  Ignore state, stack_depth
 
    package Config_Op_Arrays is new SAL.Gen_Bounded_Definite_Vectors
-     (Positive_Index_Type, Config_Op, Capacity => 80);
+     (Positive_Index_Type, Config_Op, Default_Element => (Fast_Forward, WisiToken.Token_Index'First), Capacity => 80);
    --  Using a fixed size vector significantly speeds up
    --  McKenzie_Recover. The capacity is determined by the maximum number
    --  of repair operations, which is limited by the cost_limit McKenzie
@@ -525,7 +525,7 @@ package WisiToken.Parse.LR is
    end record;
 
    package Recover_Op_Arrays is new SAL.Gen_Bounded_Definite_Vectors
-     (Positive_Index_Type, Recover_Op, Capacity => 80);
+     (Positive_Index_Type, Recover_Op, Capacity => 80, Default_Element => (others => <>));
 
    package Recover_Op_Array_Refs is new Recover_Op_Arrays.Gen_Refs;
 
@@ -616,7 +616,7 @@ package WisiToken.Parse.LR is
       --  Current_Shared_Token.
 
       Error_Token       : Recover_Token;
-      Check_Token_Count : Ada.Containers.Count_Type;
+      Check_Token_Count : Ada.Containers.Count_Type := 0;
       Check_Status      : Semantic_Checks.Check_Status;
       --  If parsing this config ended with a parse error, Error_Token is
       --  the token that failed to shift, Check_Status.Label is Ok.

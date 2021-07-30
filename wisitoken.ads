@@ -16,7 +16,7 @@
 --  Sethi, and Ullman (aka: "The [Red] Dragon Book" due to the dragon
 --  on the cover).
 --
---  Copyright (C) 2009, 2010, 2013 - 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2009, 2010, 2013 - 2015, 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -40,16 +40,17 @@
 
 pragma License (Modified_GPL);
 
+with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers;
 with Ada.Strings.Unbounded;
 with Ada.Text_IO;
 with Ada.Unchecked_Deallocation;
-with SAL.Generic_Decimal_Image;
 with SAL.Gen_Trimmed_Image;
 with SAL.Gen_Unbounded_Definite_Queues;
 with SAL.Gen_Unbounded_Definite_Vectors.Gen_Image;
 with SAL.Gen_Unbounded_Definite_Vectors.Gen_Image_Aux;
 with SAL.Gen_Unconstrained_Array_Image;
+with SAL.Generic_Decimal_Image;
 package WisiToken is
 
    Partial_Parse : exception; -- a partial parse terminated.
@@ -269,6 +270,9 @@ package WisiToken is
 
    type Base_Buffer_Pos is range 0 .. Integer'Last;
    subtype Buffer_Pos is Base_Buffer_Pos range 1 .. Base_Buffer_Pos'Last; -- match Emacs buffer origin.
+
+   package Buffer_Pos_Lists is new Ada.Containers.Doubly_Linked_Lists (Buffer_Pos);
+
    type Buffer_Region is record
       First : Buffer_Pos;
       Last  : Base_Buffer_Pos; --  allow representing null range.

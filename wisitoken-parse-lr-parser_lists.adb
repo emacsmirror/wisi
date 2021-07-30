@@ -2,7 +2,7 @@
 --
 --  see spec
 --
---  Copyright (C) 2014 - 2020  All Rights Reserved.
+--  Copyright (C) 2014 - 2021  All Rights Reserved.
 --
 --  The WisiToken package is free software; you can redistribute it
 --  and/or modify it under terms of the GNU General Public License as
@@ -80,7 +80,7 @@ package body WisiToken.Parse.LR.Parser_Lists is
 
    function First (List : aliased in out Parser_Lists.List'Class) return Cursor
    is begin
-      return (Elements => List.Elements'Access, Ptr => List.Elements.First);
+      return (Ptr => List.Elements.First);
    end First;
 
    procedure Next (Cursor : in out Parser_Lists.Cursor)
@@ -162,7 +162,7 @@ package body WisiToken.Parse.LR.Parser_Lists is
          Temp : Parser_State_Lists.Cursor := Cursor.Ptr;
       begin
          Parser_State_Lists.Next (Cursor.Ptr);
-         Parser_State_Lists.Delete (Cursor.Elements.all, Temp);
+         Parsers.Elements.Delete (Temp);
       end Free;
    begin
       if Trace_Parse > Outline then
@@ -336,7 +336,7 @@ package body WisiToken.Parse.LR.Parser_Lists is
 
    function To_Cursor (Ptr : in Parser_Node_Access) return Cursor
    is begin
-      return (Ptr.Elements, Ptr.Ptr);
+      return (Ptr => Ptr.Ptr);
    end To_Cursor;
 
    function Constant_Reference
@@ -375,7 +375,7 @@ package body WisiToken.Parse.LR.Parser_Lists is
 
    overriding function First (Object : Iterator) return Parser_Node_Access
    is begin
-      return (Elements => Object.Elements, Ptr => Object.Elements.First);
+      return (Ptr => Object.Elements.First);
    end First;
 
    overriding function Next
@@ -385,7 +385,7 @@ package body WisiToken.Parse.LR.Parser_Lists is
    is
       pragma Unreferenced (Object);
    begin
-      return (Position.Elements, Parser_State_Lists.Next (Position.Ptr));
+      return (Ptr => Parser_State_Lists.Next (Position.Ptr));
    end Next;
 
    function Iterate (Container : aliased in out List) return Iterator_Interfaces.Forward_Iterator'Class

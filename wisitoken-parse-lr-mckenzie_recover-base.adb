@@ -2,7 +2,7 @@
 --
 --  Base utilities for McKenzie_Recover
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -161,7 +161,13 @@ package body WisiToken.Parse.LR.McKenzie_Recover.Base is
          procedure Set_All_Done
          is begin
             Parser_Index := SAL.Base_Peek_Type'First;
+
+            pragma Warnings (Off, "aggregate not fully initialized");
+            --  Config.Stack.Data is not initialized, but no uninitialized data is
+            --  ever referenced.
             Config       := (others => <>);
+            pragma Warnings (On, "aggregate not fully initialized");
+
             Status       := All_Done;
          end Set_All_Done;
 

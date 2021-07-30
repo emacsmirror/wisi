@@ -2,7 +2,7 @@
 --
 --  Generalized LR parser state.
 --
---  Copyright (C) 2014-2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2014-2015, 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -261,12 +261,12 @@ private
       Parser_Label : Natural; -- label of last added parser.
    end record;
 
-   type Cursor (Elements : access Parser_State_Lists.List) is tagged
+   type Cursor is tagged
    record
       Ptr : Parser_State_Lists.Cursor;
    end record;
 
-   type Parser_Node_Access (Elements : access Parser_State_Lists.List) is
+   type Parser_Node_Access is
    record
       Ptr : Parser_State_Lists.Cursor;
    end record;

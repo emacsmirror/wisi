@@ -46,7 +46,7 @@ project Wisi is
          for Default_Switches ("Ada") use
            Standard_Common.Compiler.Common_Switches &
            Standard_Common.Compiler.Style_Checks &
-           Standard_Common.Compiler.Debug_Switches;
+           Standard_Common.Compiler.Debug_Switches & "-gnat2020";
 
          for Default_Switches ("C") use Standard_Common.Compiler.Debug_Switches_C;
 
@@ -54,7 +54,7 @@ project Wisi is
          for Default_Switches ("Ada") use
            Standard_Common.Compiler.Common_Switches &
            Standard_Common.Compiler.Style_Checks &
-           Standard_Common.Compiler.Release_Switches;
+           Standard_Common.Compiler.Release_Switches & "-gnat2020";
 
          for Default_Switches ("C") use Standard_Common.Compiler.Release_Switches_C;
       end case;

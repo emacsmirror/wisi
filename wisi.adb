@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -1577,18 +1577,21 @@ package body Wisi is
                      Cache : Face_Cache_Type renames Data.Face_Caches (Cache_Cur);
                      Other_Cur : Cursor := Find_In_Range
                        (Iter, Ascending, Cache.Char_Region.Last + 1, Token.Char_Region.Last);
-                     Temp : Cursor;
+                     To_Delete : Buffer_Pos_Lists.List;
                   begin
                      loop
                         exit when not Has_Element (Other_Cur) or else
                           Data.Face_Caches (Other_Cur).Char_Region.First > Token.Char_Region.Last;
-                        Temp := Other_Cur;
+                        To_Delete.Append (Data.Face_Caches (Other_Cur).Char_Region.First);
                         Other_Cur := Next (Iter, Other_Cur);
-                        Delete (Data.Face_Caches, Temp);
                      end loop;
 
                      Cache.Class            := Param.Class;
                      Cache.Char_Region.Last := Token.Char_Region.Last;
+
+                     for Face of To_Delete loop
+                        Data.Face_Caches.Delete (Face);
+                     end loop;
                   end;
                else
                   Data.Face_Caches.Insert ((Token.Char_Region, Param.Class, (Set => False)));
@@ -1610,20 +1613,22 @@ package body Wisi is
 
       Iter      : constant Iterator := Data.Face_Caches.Iterate;
       Cache_Cur : Cursor;
-      Temp      : Cursor;
    begin
       for I of Params loop
          if Tree.Byte_Region (Tokens (I)) /= Null_Buffer_Region then
             declare
-               Token : Aug_Token_Const_Ref renames Get_Aug_Token_Const_1 (Tree, Tokens (I));
+               Token     : Aug_Token_Const_Ref renames Get_Aug_Token_Const_1 (Tree, Tokens (I));
+               To_Delete : Buffer_Pos_Lists.List;
             begin
                Cache_Cur := Find_In_Range (Iter, Ascending, Token.Char_Region.First, Token.Char_Region.Last);
                loop
                   exit when not Has_Element (Cache_Cur) or else
                     Data.Face_Caches (Cache_Cur).Char_Region.First > Token.Char_Region.Last;
-                  Temp := Cache_Cur;
+                  To_Delete.Append (Data.Face_Caches (Cache_Cur).Char_Region.First);
                   Cache_Cur := Next (Iter, Cache_Cur);
-                  Delete (Data.Face_Caches, Temp);
+               end loop;
+               for Face of To_Delete loop
+                  Data.Face_Caches.Delete (Face);
                end loop;
             end;
          end if;

@@ -2,7 +2,7 @@
 --
 --  Config parsing subprograms.
 --
---  Copyright (C) 2018 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2019, 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -34,7 +34,7 @@ private package WisiToken.Parse.LR.McKenzie_Recover.Parse is
    type Parse_Item is record
       Config      : Configuration;
       Action      : Parse_Action_Node_Ptr;
-      Parsed      : Boolean;
+      Parsed      : Boolean := False;
       Shift_Count : Natural := 0;
 
       --  On return from Parse, if Parsed = False, this item was queued by a
@@ -51,7 +51,8 @@ private package WisiToken.Parse.LR.McKenzie_Recover.Parse is
       --  pre-reduce state.
    end record;
 
-   package Parse_Item_Arrays is new SAL.Gen_Bounded_Definite_Vectors (Positive, Parse_Item, Capacity => 10);
+   package Parse_Item_Arrays is new SAL.Gen_Bounded_Definite_Vectors
+     (Positive, Parse_Item, Default_Element => (others => <>), Capacity => 10);
    --  Parse_Item_Arrays.Capacity sets maximum conflicts in one call to Parse
 
    package Parse_Item_Array_Refs is new Parse_Item_Arrays.Gen_Refs;
