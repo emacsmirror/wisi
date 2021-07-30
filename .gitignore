@@ -1,3 +1,6 @@
 /wisi-pkg.el
 /wisi-autoloads.el
 *.elc
+obj/
+wisi.gpr
+wisitoken-user_guide.info
