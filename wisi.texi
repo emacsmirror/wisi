@@ -369,7 +369,7 @@ Comment lines that are not trailing are indented by CODE-INDENT.
 
 @item (label . INDENT)
 If token labels are used in a right hand side, they must be given
-explicitly in the indent arguments, using he lisp ``cons''
+explicitly in the indent arguments, using the lisp ``cons''
 syntax. Labels are normally only used with EBNF grammars, which expand
 into multiple right hand sides, with optional tokens simply left
 out. Explicit labels on the indent arguments allow them to be left out

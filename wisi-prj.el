@@ -270,7 +270,8 @@ LINE, COLUMN are Emacs origin."
     (goto-char (marker-position marker))))
 
 (defun wisi-filter-table (table file)
-  "If FILE is nil, return TABLE. Otherwise return only items in TABLE with location FILE."
+  "If FILE is nil, return TABLE.
+Otherwise return only items in TABLE with location FILE."
   (cond
    ((null file)
     table)
@@ -283,7 +284,8 @@ LINE, COLUMN are Emacs origin."
       result))))
 
 (defun wisi-get-identifier (prompt)
-  "Get identifier at point, or, if no identifier at point or with user arg, prompt for one.
+  "Get identifier at point.
+If no identifier at point or with user arg, prompt for an identifier.
 Single user arg completes on all identifiers in project; double
 user arg limits completion to current file."
   ;; Similar to xref--read-identifier, but uses a different completion
@@ -333,10 +335,17 @@ If no symbol at point, or with prefix arg, prompt for symbol, goto spec."
      ((stringp identifier)
       ;; from xref-backend-identifier-at-point; desired location is 'other'
       (let ((item (wisi-xref-item identifier prj)))
-	(condition-case-unless-debug err
-	    (with-slots (summary location) item
-	      (let ((eieio-skip-typecheck t))
-		(with-slots (file line column) location
+	(condition-case err
+	    ;; WORKAROUND: xref 1.3.2 xref-location changed from defclass to cl-defstruct
+	    (with-suppressed-warnings (nil) ;; "unknown slot"
+	      (let ((summary (if (functionp 'xref-item-summary) (xref-item-summary item) (oref item :summary)))
+		    (location (if (functionp 'xref-item-location) (xref-item-location item) (oref item :location)))
+		    (eieio-skip-typecheck t)) ;; 'location' may have line, column nil
+		(let ((file (if (functionp 'xref-location-file) (xref-location-file location) (oref location :file)))
+		      (line (if (functionp 'xref-location-line) (xref-location-line location) (oref location :line)))
+		      (column (if (functionp 'xref-location-column)
+				  (xref-location-column location)
+				(oref location :column))))
 		  (let ((target
 			 (wisi-xref-other
 			  (wisi-prj-xref prj) prj
