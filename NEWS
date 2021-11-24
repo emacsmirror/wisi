@@ -6,6 +6,16 @@ Please send wisi bug reports to bug-gnu-emacs@gnu.org, with
 'wisi' in the subject. If possible, use M-x report-emacs-bug.
 
 
+* wisi 3.1.7
+21 Nov 2021
+
+** Correct last fix (sigh).
+
+* wisi 3.1.6
+21 Nov 2021
+
+** Adapt to change in xref.el xref-file-location.
+
 * wisi 3.1.5
 30 Jul 2021
 

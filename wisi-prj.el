@@ -336,15 +336,21 @@ If no symbol at point, or with prefix arg, prompt for symbol, goto spec."
       ;; from xref-backend-identifier-at-point; desired location is 'other'
       (let ((item (wisi-xref-item identifier prj)))
 	(condition-case err
-	    ;; WORKAROUND: xref 1.3.2 xref-location changed from defclass to cl-defstruct
-	    (with-suppressed-warnings (nil) ;; "unknown slot"
+	    ;; WORKAROUND: xref 1.3.2 in Emacs 28 xref-location
+	    ;; changed from defclass to cl-defstruct. If drop emacs
+	    ;; 26, use 'with-suppressed-warnings'.
+	    (with-no-warnings ;; "unknown slot"
 	      (let ((summary (if (functionp 'xref-item-summary) (xref-item-summary item) (oref item :summary)))
 		    (location (if (functionp 'xref-item-location) (xref-item-location item) (oref item :location)))
 		    (eieio-skip-typecheck t)) ;; 'location' may have line, column nil
-		(let ((file (if (functionp 'xref-location-file) (xref-location-file location) (oref location :file)))
-		      (line (if (functionp 'xref-location-line) (xref-location-line location) (oref location :line)))
-		      (column (if (functionp 'xref-location-column)
-				  (xref-location-column location)
+		(let ((file (if (functionp 'xref-file-location-file)
+				(xref-file-location-file location)
+			      (oref location :file)))
+		      (line (if (functionp 'xref-file-location-line)
+				(xref-file-location-line location)
+			      (oref location :line)))
+		      (column (if (functionp 'xref-file-location-column)
+				  (xref-file-location-column location)
 				(oref location :column))))
 		  (let ((target
 			 (wisi-xref-other
