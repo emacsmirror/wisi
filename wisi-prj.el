@@ -1,6 +1,6 @@
 ;;; wisi-prj.el --- project integration -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2019 - 2021  Free Software Foundation, Inc.
+;; Copyright (C) 2019 - 2022  Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
 ;;
@@ -565,6 +565,10 @@ COLUMN - Emacs column of the start of the identifier")
 (cl-defmethod project-root ((project wisi-prj))
    ;; Not meaningful, but some project functions insist on a valid directory
    (car (wisi-prj-source-path project)))
+
+(cl-defmethod project-roots ((project wisi-prj))
+   ;; Not meaningful, but some project functions insist on a valid directory list
+   (wisi-prj-source-path project))
 
 (cl-defmethod project-files ((project wisi-prj) &optional dirs)
   (let (result)
