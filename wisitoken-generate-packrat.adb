@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2018, 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -99,8 +99,8 @@ package body WisiToken.Generate.Packrat is
             --  We only implement the simplest left recursion solution ([warth
             --  2008] figure 3); [tratt 2010] section 6.3 gives this condition for
             --  that to be valid.
-            --  FIXME: not quite? definite direct right recursive ok?
-            --  FIXME: for indirect left recursion, need potential indirect right recursive check?
+            --  FIXME packrat: not quite? definite direct right recursive ok?
+            --  FIXME packrat: for indirect left recursion, need potential indirect right recursive check?
             Put_Error
               (Error_Message
                  (-Data.Source_File_Name, Data.Source_Line_Map (Prod.LHS).Line, "'" & Image (Prod.LHS, Descriptor) &
@@ -118,7 +118,10 @@ package body WisiToken.Generate.Packrat is
       end loop;
    end Check_Recursion;
 
-   procedure Check_RHS_Order (Data : in Packrat.Data; Descriptor : in WisiToken.Descriptor)
+   procedure Check_RHS_Order
+     (Data       : in Packrat.Data;
+      Descriptor : in WisiToken.Descriptor;
+      Suppress   : in WisiToken.BNF.String_Pair_Lists.List)
    is
       use all type Ada.Containers.Count_Type;
    begin
@@ -139,19 +142,41 @@ package body WisiToken.Generate.Packrat is
             declare
                Cur : Token_ID_Arrays.Vector renames Prod.RHSs (I).Tokens;
             begin
-               --  Shared prefix; longer must be first
+               --  Shared prefix; longer must be first. Sometimes this is a useful
+               --  message, for example:
+               --
+               --  NAME
+               --    : IDENTIFIER
+               --    | IDENTIFIER TICK IDENTIFIER
+               --
+               --  The second will never get a chance to match. Other times it is
+               --  wrong, because other tokens distinguish the RHSs:
+               --
+               --  Object_Decl
+               --    : IDENTIFIER ':' IDENTIFIER ';'
+               --    | IDENTIFIER ':' IDENTIFIER := expression ';'
+               --
+               --  So we make it a warning, and provide %suppress.
+               --  See test/bnf/object_declaration for a working example.
+
                for J in Prod.RHSs.First_Index .. I - 1 loop
                   declare
                      Prev : Token_ID_Arrays.Vector renames Prod.RHSs (J).Tokens;
                      K    : constant Natural := Shared_Prefix (Prev, Cur);
                   begin
                      if K > 0 and Prev.Length < Cur.Length then
-                        Put_Error
-                          (Error_Message
-                             (-Data.Source_File_Name, Data.Source_Line_Map (Prod.LHS).RHS_Map (I),
-                              "right hand side" & Integer'Image (I) & " in " & Image (Prod.LHS, Descriptor) &
-                                " may never match; it shares a prefix with a shorter previous rhs" &
-                                Integer'Image (J) & "."));
+                        if not Suppress.Contains
+                          ((Name => +Descriptor.Image (Prod.LHS).all,
+                            Value => +"may never match; it shares a prefix"))
+                        then
+                           Put_Warning
+                             (Error_Message
+                                (-Data.Source_File_Name, Data.Source_Line_Map (Prod.LHS).RHS_Map (I),
+                                 "right hand side" & Integer'Image (I) & " in " & Image (Prod.LHS, Descriptor) &
+                                   " may never match; it shares a prefix with a shorter previous rhs" &
+                                   Integer'Image (J) & ".",
+                                 Warning => True));
+                        end if;
                      end if;
                   end;
                end loop;
@@ -209,10 +234,13 @@ package body WisiToken.Generate.Packrat is
       end loop;
    end Check_RHS_Order;
 
-   procedure Check_All (Data : in Packrat.Data; Descriptor : in WisiToken.Descriptor)
+   procedure Check_All
+     (Data       : in Packrat.Data;
+      Descriptor : in WisiToken.Descriptor;
+      Suppress   : in WisiToken.BNF.String_Pair_Lists.List)
    is begin
       Check_Recursion (Data, Descriptor);
-      Check_RHS_Order (Data, Descriptor);
+      Check_RHS_Order (Data, Descriptor, Suppress);
    end Check_All;
 
    function Potential_Direct_Left_Recursive
@@ -222,7 +250,7 @@ package body WisiToken.Generate.Packrat is
    is
       subtype Nonterminal is Token_ID range Grammar.First_Index .. Grammar.Last_Index;
    begin
-      --  FIXME: this duplicates the computation of First; if keep First,
+      --  FIXME packrat: this duplicates the computation of Data.First; if keep Data.First,
       --  change this to use it.
       return Result : Token_ID_Set (Nonterminal) := (others => False) do
          for Prod of Grammar loop

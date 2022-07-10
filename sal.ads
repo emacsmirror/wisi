@@ -9,7 +9,7 @@
 --
 --  Contact Stephe at stephen_leake@stephe-leake.org.
 --
---  Copyright (C) 1997 - 2004, 2008, 2009, 2015, 2017, 2018, 2020 Free Software Foundation, Inc.
+--  Copyright (C) 1997 - 2004, 2008, 2009, 2015, 2017, 2018, 2020, 2021 Free Software Foundation, Inc.
 --
 --  SAL is free software; you can redistribute it and/or modify it
 --  under terms of the GNU General Public License as published by the
@@ -75,5 +75,9 @@ package SAL is
    type Compare_Result is (Less, Equal, Greater);
 
    function String_Compare (Left, Right : in String) return Compare_Result;
+
+   generic
+   type Item_Type is (<>);
+   function Gen_Compare_Integer (Left, Right : in Item_Type) return Compare_Result;
 
 end SAL;

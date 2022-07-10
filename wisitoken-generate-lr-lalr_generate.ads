@@ -27,12 +27,16 @@ package WisiToken.Generate.LR.LALR_Generate is
    function Generate
      (Grammar               : in out WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor            : in     WisiToken.Descriptor;
-      Known_Conflicts       : in     Conflict_Lists.List := Conflict_Lists.Empty_List;
+      Grammar_File_Name     : in     String;
+      Known_Conflicts       : in     Conflict_Lists.Tree := Conflict_Lists.Empty_Tree;
       McKenzie_Param        : in     McKenzie_Param_Type := Default_McKenzie_Param;
+      Max_Parallel          : in     SAL.Base_Peek_Type  := 15;
       Parse_Table_File_Name : in     String              := "";
       Include_Extra         : in     Boolean             := False;
       Ignore_Conflicts      : in     Boolean             := False;
-      Partial_Recursion     : in     Boolean             := True)
+      Partial_Recursion     : in     Boolean             := True;
+      Use_Cached_Recursions : in     Boolean             := False;
+      Recursions            : in out WisiToken.Generate.Recursions)
      return Parse_Table_Ptr
    with Pre =>
      Descriptor.Last_Lookahead = Descriptor.First_Nonterminal and
@@ -46,42 +50,16 @@ package WisiToken.Generate.LR.LALR_Generate is
    --
    --  Unless Ignore_Unknown_Conflicts is True, raise Grammar_Error if there
    --  are unknown conflicts.
+   --
+   --  Grammar_File_Name is used for error messages.
 
    ----------
    --  Visible for unit tests
-
-   function LALR_Goto_Transitions
-     (Kernel            : in LR1_Items.Item_Set;
-      Symbol            : in Token_ID;
-      First_Nonterm_Set : in Token_Array_Token_Set;
-      Grammar           : in WisiToken.Productions.Prod_Arrays.Vector;
-      Descriptor        : in WisiToken.Descriptor)
-     return LR1_Items.Item_Set;
-   --  Return the Item_Set that is the goto for Symbol from Kernel.
-   --  If there is no such Item_Set, Result.Set is null.
 
    function LALR_Kernels
      (Grammar           : in WisiToken.Productions.Prod_Arrays.Vector;
       First_Nonterm_Set : in Token_Array_Token_Set;
       Descriptor        : in WisiToken.Descriptor)
      return LR1_Items.Item_Set_List;
-
-   procedure Fill_In_Lookaheads
-     (Grammar                 : in     WisiToken.Productions.Prod_Arrays.Vector;
-      Has_Empty_Production    : in     Token_ID_Set;
-      First_Terminal_Sequence : in     Token_Sequence_Arrays.Vector;
-      Kernels                 : in out LR1_Items.Item_Set_List;
-      Descriptor              : in     WisiToken.Descriptor);
-
-   procedure Add_Actions
-     (Kernels                 : in     LR1_Items.Item_Set_List;
-      Grammar                 : in     WisiToken.Productions.Prod_Arrays.Vector;
-      Has_Empty_Production    : in     Token_ID_Set;
-      First_Nonterm_Set       : in     Token_Array_Token_Set;
-      First_Terminal_Sequence : in     Token_Sequence_Arrays.Vector;
-      Conflict_Counts         :    out Conflict_Count_Lists.List;
-      Conflicts               :    out Conflict_Lists.List;
-      Table                   : in out Parse_Table;
-      Descriptor              : in     WisiToken.Descriptor);
 
 end WisiToken.Generate.LR.LALR_Generate;

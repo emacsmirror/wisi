@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2017, 2019, 2020 Free Software Foundation All Rights Reserved.
+--  Copyright (C) 2017, 2019, 2020, 2022 Free Software Foundation All Rights Reserved.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -46,25 +46,9 @@ package body SAL.Gen_Graphs is
       Data     : in     Edge_Data)
    is
       Multigraph : Boolean := False;
-
-      procedure Update_First_Last (Vertex : in Vertex_Index)
-      is
-         use all type Ada.Containers.Count_Type;
-      begin
-         if Graph.Vertices.Length = 0 then
-            Graph.Vertices.Set_First_Last (Vertex, Vertex);
-         else
-            if Vertex < Graph.Vertices.First_Index then
-               Graph.Vertices.Set_First_Last (Vertex, Graph.Vertices.Last_Index);
-            elsif Vertex > Graph.Vertices.Last_Index then
-               Graph.Vertices.Set_First_Last (Graph.Vertices.First_Index, Vertex);
-            end if;
-         end if;
-      end Update_First_Last;
-
    begin
-      Update_First_Last (Vertex_A);
-      Update_First_Last (Vertex_B);
+      Graph.Vertices.Extend (Vertex_A);
+      Graph.Vertices.Extend (Vertex_B);
 
       Graph.Last_Edge_ID := Graph.Last_Edge_ID + 1;
       if (for some E of Graph.Vertices (Vertex_A) => E.Vertex_B = Vertex_B) then

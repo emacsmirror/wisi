@@ -7,7 +7,7 @@
 --
 --  see parent.
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -24,7 +24,7 @@ pragma License (Modified_GPL);
 with WisiToken.Syntax_Trees;
 package WisiToken.Parse.Packrat.Generated is
 
-   Recursive : exception; -- FIXME: delete
+   Recursive : exception;
 
    type Memo_State is (No_Result, Failure, Success);
    subtype Result_States is Memo_State range Failure .. Success;
@@ -33,21 +33,23 @@ package WisiToken.Parse.Packrat.Generated is
 
       case State is
       when No_Result =>
-         Recursive : Boolean := False; --  FIXME: delete
+         Recursive : Boolean := False;
 
       when Failure =>
          null;
 
       when Success =>
-         Result : aliased Valid_Node_Index;
+         Result : aliased Syntax_Trees.Node_Access;
 
-         Last_Token : Base_Token_Index; --  FIXME: change to Last_Pos
-
+         Last_Pos : Syntax_Trees.Stream_Index;
       end case;
    end record;
 
+   subtype Positive_Node_Index is Syntax_Trees.Node_Index range 1 .. Syntax_Trees.Node_Index'Last;
    package Memos is new SAL.Gen_Unbounded_Definite_Vectors
-     (Token_Index, Memo_Entry, Default_Element => (others => <>));
+     (Positive_Node_Index, Memo_Entry, Default_Element => (others => <>));
+   --  Memos is indexed by Node_Index of terminals in Shared_Stream
+   --  (incremental parse is not supported).
 
    subtype Result_Type is Memo_Entry
    with Dynamic_Predicate => Result_Type.State in Result_States;
@@ -57,20 +59,19 @@ package WisiToken.Parse.Packrat.Generated is
 
    type Parse_WisiToken_Accept is access
      --  WORKAROUND: using Packrat.Parser'Class here hits a GNAT Bug box in GPL 2018.
-     function (Parser : in out Base_Parser'Class; Last_Pos : in Base_Token_Index) return Result_Type;
+     function (Parser : in out Base_Parser'Class; Last_Pos : in Syntax_Trees.Stream_Index) return Result_Type;
 
    type Parser is new Packrat.Parser with record
-      Derivs : Generated.Derivs.Vector; --  FIXME: use discriminated array, as in procedural
+      Derivs : Generated.Derivs.Vector; --  FIXME packrat: use discriminated array, as in procedural
 
       Parse_WisiToken_Accept : Generated.Parse_WisiToken_Accept;
    end record;
 
-   overriding procedure Parse (Parser : aliased in out Generated.Parser);
-   overriding function Tree (Parser : in Generated.Parser) return Syntax_Trees.Tree;
-   overriding function Tree_Var_Ref
-     (Parser : aliased in out Generated.Parser)
-     return Syntax_Trees.Tree_Variable_Reference;
-   overriding function Any_Errors (Parser : in Generated.Parser) return Boolean;
-   overriding procedure Put_Errors (Parser : in Generated.Parser);
+   overriding procedure Parse
+     (Parser     : in out Generated.Parser;
+      Log_File   : in     Ada.Text_IO.File_Type;
+      Edits      : in     KMN_Lists.List := KMN_Lists.Empty_List;
+      Pre_Edited : in     Boolean        := False);
+   --  Raises Parse_Error if Edits is not empty. Log_File, Pre_Edited are ignored.
 
 end WisiToken.Parse.Packrat.Generated;

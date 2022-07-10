@@ -2,7 +2,7 @@
 --
 --  Output Ada source code to recreate Grammar.
 --
---  Copyright (C) 2018 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -72,7 +72,7 @@ begin
                end if;
             end if;
             if Action_Names (Prod.LHS) /= null and then Action_Names (Prod.LHS)(RHS_Index) /= null then
-               Indent_Line ("RHS.Action     := " & Action_Names (Prod.LHS)(RHS_Index).all & "'Access;");
+               Indent_Line ("RHS.Post_Parse_Action := " & Action_Names (Prod.LHS)(RHS_Index).all & "'Access;");
             end if;
             Indent_Line ("Prod.RHSs (" & Trimmed_Image (RHS_Index) & ") := RHS;");
             Indent := Indent - 3;

@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -98,7 +98,8 @@ is
       --  WORKAROUND: If init Result with ":= Left", GNAT Community 2019
       --  checks Default_Initial_Condition (which fails when Left is not
       --  empty)! That is only supposed to be checked when initialized by
-      --  default. Reported to AdaCore as ticket S724-042.
+      --  default. Reported to AdaCore as ticket S724-042. Fixed in GNAT
+      --  Community 2021; keeping workaround until we drop support for 2020.
       return Result : Vector do
          Result := Left;
          Append (Result, Right);

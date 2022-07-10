@@ -12,7 +12,7 @@
 --
 --  See wisitoken.ads
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2020, 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -33,17 +33,22 @@ with SAL.Gen_Graphs;
 with WisiToken.Productions;
 package WisiToken.Generate is
 
-   Error : Boolean := False;
-   --  Set True by errors during grammar generation
+   Error   : Boolean := False;
+   Warning : Boolean := False;
+   --  Set True by errors/warnings during grammar generation
 
    function Error_Message
      (File_Name : in String;
       File_Line : in WisiToken.Line_Number_Type;
-      Message   : in String)
+      Message   : in String;
+      Warning   : in Boolean := False)
      return String;
 
    procedure Put_Error (Message : in String);
    --  Set Error True, output Message to Standard_Error
+
+   procedure Put_Warning (Message : in String);
+   --  Set Warning True, output Message to Standard_Error
 
    procedure Check_Consistent
      (Grammar          : in WisiToken.Productions.Prod_Arrays.Vector;
@@ -83,7 +88,7 @@ package WisiToken.Generate is
    --
    --  LALR, LR1 generate want First as both Token_Sequence_Arrays.Vector
    --  and Token_Array_Token_Set, Packrat wants Token_Array_Token_Set,
-   --  existing tests all use Token_Array_Token_Set. So for LR1 we use
+   --  existing tests all use Token_Array_Token_Set. So for LR we use
    --  To_Terminal_Sequence_Array.
 
    function To_Terminal_Sequence_Array
@@ -118,7 +123,8 @@ package WisiToken.Generate is
       Token_Index : Positive := Positive'Last;
    end record;
 
-   function Edge_Image (Edge : in Edge_Data) return String is (Trimmed_Image (Edge.RHS));
+   function Edge_Image (Edge : in Edge_Data) return String
+   is (Trimmed_Image (Edge.RHS) & "." & Trimmed_Image (Edge.Token_Index));
 
    type Base_Recursion_Index is range 0 .. Integer'Last;
    subtype Recursion_Index is Base_Recursion_Index range 1 .. Base_Recursion_Index'Last;
@@ -148,6 +154,8 @@ package WisiToken.Generate is
       --  path (I) are from path (I).
    end record;
 
+   Empty_Recursions : constant Recursions := (Full => False, Recursions => <>);
+
    package Recursion_Lists is new Ada.Containers.Doubly_Linked_Lists (Recursion_Index);
    function Image is new SAL.Ada_Containers.Gen_Doubly_Linked_Lists_Image
      (Recursion_Index, "=", Recursion_Lists, Trimmed_Image);
@@ -155,22 +163,23 @@ package WisiToken.Generate is
    function To_Graph (Grammar : in WisiToken.Productions.Prod_Arrays.Vector) return Grammar_Graphs.Graph;
 
    function Compute_Full_Recursion
-     (Grammar    : in out WisiToken.Productions.Prod_Arrays.Vector;
-      Descriptor : in     WisiToken.Descriptor)
+     (Grammar    : in WisiToken.Productions.Prod_Arrays.Vector;
+      Descriptor : in WisiToken.Descriptor)
      return Recursions;
-   --  Each element of result is a cycle in the grammar. Also sets
-   --  Recursive components in Grammar.
+   --  Each element of result is a cycle in the grammar.
 
    function Compute_Partial_Recursion
-     (Grammar    : in out WisiToken.Productions.Prod_Arrays.Vector;
-      Descriptor : in     WisiToken.Descriptor)
+     (Grammar    : in WisiToken.Productions.Prod_Arrays.Vector;
+      Descriptor : in WisiToken.Descriptor)
      return Recursions;
    --  Each element of the result contains all members of a non-trivial
    --  strongly connected component in the grammar, in arbitrary order.
    --  This is an approximation to the full recursion, when that is too
    --  hard to compute (ie for Java).
-   --
-   --  Also sets Recursive components in Grammar.
+
+   procedure Set_Grammar_Recursions
+     (Recursions : in     WisiToken.Generate.Recursions;
+      Grammar    : in out WisiToken.Productions.Prod_Arrays.Vector);
 
    ----------
    --  Indented text output. Mostly used for code generation in wisi,

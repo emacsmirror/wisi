@@ -16,7 +16,17 @@
 --  Sethi, and Ullman (aka: "The [Red] Dragon Book" due to the dragon
 --  on the cover).
 --
---  Copyright (C) 2009, 2010, 2013 - 2015, 2017 - 2021 Free Software Foundation, Inc.
+--  [gnu_coding] https://www.gnu.org/prep/standards/standards.html#Errors
+--
+--  [Lahav 2004] - Elad Lahav. Efficient Semantic Analysis for Text
+--  Editors. final project for CS842 School of Computer Science,
+--  University of Waterloo.
+--
+--  [Wagner Graham 1998] - Tim A. Wagner and Susan L. Graham.
+--  Efficient and flexible incremental parsing. ACM Transactions on
+--  Programming Languages and Systems,20(5):980-1013, 1998
+--
+--  Copyright (C) 2009, 2010, 2013 - 2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -41,16 +51,15 @@
 pragma License (Modified_GPL);
 
 with Ada.Containers.Doubly_Linked_Lists;
-with Ada.Containers;
+with Ada.Streams;
+with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 with Ada.Text_IO;
-with Ada.Unchecked_Deallocation;
+with GNATCOLL.Memory;
 with SAL.Gen_Trimmed_Image;
 with SAL.Gen_Unbounded_Definite_Queues;
 with SAL.Gen_Unbounded_Definite_Vectors.Gen_Image;
 with SAL.Gen_Unbounded_Definite_Vectors.Gen_Image_Aux;
-with SAL.Gen_Unconstrained_Array_Image;
-with SAL.Generic_Decimal_Image;
 package WisiToken is
 
    Partial_Parse : exception; -- a partial parse terminated.
@@ -75,6 +84,7 @@ package WisiToken is
    type Unknown_State_Index is new Integer range -1 .. Integer'Last;
    subtype State_Index is Unknown_State_Index range 0 .. Unknown_State_Index'Last;
    Unknown_State : constant Unknown_State_Index := -1;
+   Accept_State  : constant State_Index         := State_Index'Last;
 
    function Trimmed_Image is new SAL.Gen_Trimmed_Image (Unknown_State_Index);
 
@@ -87,7 +97,11 @@ package WisiToken is
    ----------
    --  Token IDs
 
-   type Token_ID is range 0 .. Integer'Last; -- 0 origin to match elisp array
+   type Token_ID is range 0 .. 2**15 - 1;
+   for Token_ID'Size use 16;
+   --  0 origin to match elisp array, 16 bits to reduce storage, signed
+   --  to match generics. Biggest language will have < 500 token ids; Ada
+   --  2020 has 481, Java 19 has 321.
 
    Invalid_Token_ID : constant Token_ID := Token_ID'Last;
 
@@ -100,7 +114,8 @@ package WisiToken is
       Last_Terminal     : Token_ID;
       First_Nonterminal : Token_ID;
       Last_Nonterminal  : Token_ID;
-      EOI_ID            : Token_ID;
+      SOI_ID            : Token_ID; -- start of input
+      EOI_ID            : Token_ID; -- end of input
       Accept_ID         : Token_ID)
    is record
       --  Tokens in the range Token_ID'First .. First_Terminal - 1 are
@@ -109,6 +124,10 @@ package WisiToken is
       --
       --  Tokens in the range Last_Terminal + 1 .. Last_Nonterminal are
       --  the nonterminals of a grammar.
+      --
+      --  SOI_ID is not reported by the lexer, and is not present in
+      --  grammar productions; it is hard-coded by the syntax tree
+      --  utilities.
       --
       --  Components are discriminants if they can be specified statically.
 
@@ -123,8 +142,11 @@ package WisiToken is
       --  have two kinds of string literals, set one or both of these to
       --  Invalid_Token_ID.
 
-      Image : Token_ID_Array_String (Token_ID'First .. Last_Nonterminal);
+      Image : Token_ID_Array_String (Token_ID'First .. SOI_ID);
       --  User names for tokens.
+      --
+      --  See wisitoken-bnf-generate_utils.adb Initialize for actual order
+      --  of tokens.
 
       Terminal_Image_Width : Integer;
       Image_Width          : Integer; --  max width of Image
@@ -137,7 +159,7 @@ package WisiToken is
       --  Last_Lookahead. After the LR table is generated, Last_Lookahead is
       --  no longer used.
    end record;
-   type Descriptor_Access is access Descriptor;
+   type Descriptor_Access is access all Descriptor;
    type Descriptor_Access_Constant is access constant Descriptor;
 
    function Padded_Image (Item : in Token_ID; Desc : in Descriptor) return String;
@@ -152,6 +174,12 @@ package WisiToken is
    procedure Put_Tokens (Descriptor : in WisiToken.Descriptor);
    --  Put user readable token list (token_id'first ..
    --  descriptor.last_nonterminal) to Ada.Text_IO.Current_Output
+
+   function Is_Terminal (ID : in Token_ID; Descriptor : in WisiToken.Descriptor) return Boolean
+   is (ID in Descriptor.First_Terminal .. Descriptor.Last_Terminal);
+
+   function Is_Nonterminal (ID : in Token_ID; Descriptor : in WisiToken.Descriptor) return Boolean
+   is (ID in Descriptor.First_Nonterminal .. Descriptor.Last_Nonterminal);
 
    function Find_ID (Descriptor : in WisiToken.Descriptor; Name : in String) return Token_ID;
    --  Return index of Name in Descriptor.Image. If not found, raise Programmer_Error.
@@ -170,6 +198,8 @@ package WisiToken is
 
    procedure To_Vector (Item : in Token_ID_Array; Vector : in out Token_ID_Arrays.Vector);
    function To_Vector (Item : in Token_ID_Array) return Token_ID_Arrays.Vector;
+
+   function To_Array (Item : in Token_ID_Arrays.Vector) return Token_ID_Array;
 
    function Shared_Prefix (A, B : in Token_ID_Arrays.Vector) return Natural;
    --  Return last index in A of a prefix shared between A, B; 0 if none.
@@ -232,6 +262,9 @@ package WisiToken is
    function Image (Item : in Production_ID) return String;
    --  Ada positional aggregate syntax, for code generation.
 
+   function Image (Item : in Production_ID; Descriptor : in WisiToken.Descriptor) return String;
+   --  Nonterm_name_rhs_index, for messages.
+
    function Trimmed_Image (Item : in Production_ID) return String;
    --  Nonterm.rhs_index, both integers, no leading or trailing space;
    --  for parse table output and diagnostics.
@@ -268,10 +301,18 @@ package WisiToken is
    ----------
    --  Tokens
 
-   type Base_Buffer_Pos is range 0 .. Integer'Last;
+   type Base_Buffer_Pos is new Integer;
+   --  Token shift amounts in edited source can be arbitrarily large
+   --  positive or negative.
+
+   subtype Zero_Buffer_Pos is Base_Buffer_Pos range 0 .. Base_Buffer_Pos'Last; -- allow 0
    subtype Buffer_Pos is Base_Buffer_Pos range 1 .. Base_Buffer_Pos'Last; -- match Emacs buffer origin.
 
+   type Buffer_Pos_Access is access all Buffer_Pos;
+
    package Buffer_Pos_Lists is new Ada.Containers.Doubly_Linked_Lists (Buffer_Pos);
+
+   function Trimmed_Image is new SAL.Gen_Trimmed_Image (Base_Buffer_Pos);
 
    type Buffer_Region is record
       First : Buffer_Pos;
@@ -281,145 +322,72 @@ package WisiToken is
    Invalid_Buffer_Pos : constant Buffer_Pos    := Buffer_Pos'Last;
    Null_Buffer_Region : constant Buffer_Region := (Buffer_Pos'Last, Buffer_Pos'First);
 
-   function Length (Region : in Buffer_Region) return Natural is (Natural (Region.Last - Region.First + 1));
+   function Length (Region : in Buffer_Region) return Natural is
+     ((if Region.Last >= Region.First
+       then Natural (Region.Last - Region.First + 1)
+       else 0));
 
-   function Inside (Pos : in Buffer_Pos; Region : in Buffer_Region) return Boolean
-     is (Region.First <= Pos and Pos <= Region.Last);
+   function Contains (Region : in Buffer_Region; Pos : in Base_Buffer_Pos) return Boolean
+   is (Region.First <= Pos and Pos <= Region.Last);
+
+   type Boundary is (Inclusive, Exclusive);
+
+   function Contains
+     (Outer, Inner   : in Buffer_Region;
+      First_Boundary : in Boundary := Inclusive;
+      Last_Boundary  : in Boundary := Inclusive)
+     return Boolean;
+   --  True if Outer entirely contains Inner, according to Boundaries.
+   --
+   --  Note that any non-null region contains Null_Buffer_Region.
+
+   function Overlaps (A, B : in Buffer_Region) return Boolean;
+   --  True if A and B have some positions in common.
 
    function Image (Item : in Buffer_Region) return String;
 
    function "and" (Left, Right : in Buffer_Region) return Buffer_Region;
    --  Return region enclosing both Left and Right.
 
-   type Line_Number_Type is range 1 .. Natural'Last; -- Match Emacs buffer line numbers.
-   function Trimmed_Image is new SAL.Gen_Trimmed_Image (Line_Number_Type);
+   function "+" (Left : in Buffer_Region; Right : in Base_Buffer_Pos) return Buffer_Region
+     is (Left.First + Right, Left.Last + Right);
 
-   Invalid_Line_Number : constant Line_Number_Type := Line_Number_Type'Last;
+   function Adjust (Left : in Buffer_Region; Delta_First : in Integer; Delta_Last : in Integer) return Buffer_Region
+   is (Buffer_Pos (Integer'Max (1, Integer (Left.First) + Delta_First)),
+       Base_Buffer_Pos (Integer (Left.Last) + Delta_Last));
 
-   --  Syntax tree nodes.
-   type Node_Index is range 0 .. Integer'Last;
-   subtype Valid_Node_Index is Node_Index range 1 .. Node_Index'Last;
-   --  Note that Valid_Node_Index includes Deleted_Child.
+   type Base_Line_Number_Type is new Integer; -- for delta line numbers.
+   subtype Line_Number_Type is Base_Line_Number_Type range 1 .. Base_Line_Number_Type'Last - 1;
+   --  Match Emacs buffer line numbers.
 
-   Invalid_Node_Index : constant Node_Index := Node_Index'First;
-   Deleted_Child      : constant Node_Index := Node_Index'Last;
+   Invalid_Line_Number : constant Base_Line_Number_Type := Base_Line_Number_Type'Last;
 
-   type Valid_Node_Index_Array is array (Positive_Index_Type range <>) of Valid_Node_Index;
-   --  Index matches Base_Token_Array, Augmented_Token_Array
+   function Trimmed_Image (Item : in Base_Line_Number_Type) return String;
+   --  '-' if Invalid_Line_Number
 
-   function Image is new SAL.Generic_Decimal_Image (Valid_Node_Index);
-   --  Has Width parameter
-
-   function Image (Item : in Valid_Node_Index) return String
-     is (Image (Item, 4));
-
-   function Image is new SAL.Gen_Unconstrained_Array_Image
-     (Positive_Index_Type, Valid_Node_Index, Valid_Node_Index_Array, Image);
-
-   package Valid_Node_Index_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
-     (Positive_Index_Type, Valid_Node_Index, Default_Element => Valid_Node_Index'Last);
-   --  Index matches Valid_Node_Index_Array.
-
-   type Base_Token is tagged record
-      --  Base_Token is used in the core parser. The parser only needs ID and Tree_Index;
-      --  semantic checks need Byte_Region to compare names. Line, Col, and
-      --  Char_Region are included for error messages.
-
-      ID         : Token_ID   := Invalid_Token_ID;
-      Tree_Index : Node_Index := Invalid_Node_Index;
-
-      Byte_Region : Buffer_Region := Null_Buffer_Region;
-      --  Index into the Lexer buffer for the token text.
-
-      Line   : Line_Number_Type  := Invalid_Line_Number;
-      Column : Ada.Text_IO.Count := 0;
-      --  At start of token.
-
-      Char_Region : Buffer_Region := Null_Buffer_Region;
-      --  Character position, useful for finding the token location in Emacs
-      --  buffers.
+   type Line_Region is record
+      First, Last : Line_Number_Type;
    end record;
 
-   type Base_Token_Class_Access is access all Base_Token'Class;
-   type Base_Token_Class_Access_Constant is access constant Base_Token'Class;
+   Null_Line_Region : constant Line_Region := (Line_Number_Type'Last, Line_Number_Type'First);
 
-   function Image
-     (Item       : in Base_Token;
-      Descriptor : in WisiToken.Descriptor)
-     return String;
-   --  For debug/test messages.
+   function New_Line_Count (Region : in Line_Region) return Base_Line_Number_Type
+   is ((if Region.Last >= Region.First
+        then Region.Last - Region.First
+        else 0));
 
-   procedure Free is new Ada.Unchecked_Deallocation (Base_Token'Class, Base_Token_Class_Access);
+   function Contains_New_Line (Region : in Line_Region) return Boolean
+   is (Region.Last > Region.First);
 
-   Invalid_Token : constant Base_Token := (others => <>);
+   function Image (Item : in Line_Region) return String;
+   --  Ada positional aggregate.
 
-   type Base_Token_Index is range 0 .. Integer'Last;
-   subtype Token_Index is Base_Token_Index range 1 .. Base_Token_Index'Last;
+   function "+" (Left : in Line_Region; Right : in Base_Line_Number_Type) return Line_Region;
 
-   Invalid_Token_Index : constant Base_Token_Index := Base_Token_Index'First;
+   function Contains (Region : in Line_Region; Pos : in Base_Line_Number_Type) return Boolean
+   is (Region.First <= Pos and Pos <= Region.Last);
 
-   function Trimmed_Image is new SAL.Gen_Trimmed_Image (Base_Token_Index);
-
-   type Token_Index_Array is array (Natural range <>) of Token_Index;
-
-   package Recover_Token_Index_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
-     (Natural, Base_Token_Index, Default_Element => Invalid_Token_Index);
-
-   type Base_Token_Array is array (Positive_Index_Type range <>) of Base_Token;
-
-   package Base_Token_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
-     (Token_Index, Base_Token, Default_Element => (others => <>));
-   type Base_Token_Array_Access is access all Base_Token_Arrays.Vector;
-   type Base_Token_Array_Access_Constant is access constant Base_Token_Arrays.Vector;
-
-   function Image is new Base_Token_Arrays.Gen_Image_Aux (WisiToken.Descriptor, Trimmed_Image, Image);
-
-   function Image
-     (Token      : in Base_Token_Index;
-      Terminals  : in Base_Token_Arrays.Vector;
-      Descriptor : in WisiToken.Descriptor)
-     return String;
-
-   package Line_Begin_Token_Vectors is new SAL.Gen_Unbounded_Definite_Vectors
-     (Line_Number_Type, Base_Token_Index, Default_Element => Invalid_Token_Index);
-
-   type Recover_Token is record
-      --  Maintaining a syntax tree during error recovery is too slow, so we
-      --  store enough information in the recover stack to perform
-      --  Semantic_Checks, Language_Fixes, and Push_Back operations. and to
-      --  apply the solution to the main parser state. We make thousands of
-      --  copies of the parse stack during recover, so minimizing size and
-      --  compute time for this is critical.
-      ID : Token_ID := Invalid_Token_ID;
-
-      Byte_Region : Buffer_Region := Null_Buffer_Region;
-      --  Byte_Region is used to detect empty tokens, for cost and other issues.
-
-      Min_Terminal_Index : Base_Token_Index := Invalid_Token_Index;
-      --  For terminals, index of this token in Shared_Parser.Terminals. For
-      --  nonterminals, minimum of contained tokens (Invalid_Token_Index if
-      --  empty). For virtuals, Invalid_Token_Index. Used for push_back of
-      --  nonterminals.
-
-      Name : Buffer_Region := Null_Buffer_Region;
-      --  Set and used by semantic_checks.
-
-      Virtual : Boolean := True;
-      --  For terminals, True if inserted by recover. For nonterminals, True
-      --  if any contained token has Virtual = True.
-   end record;
-
-   function Image
-     (Item       : in Recover_Token;
-      Descriptor : in WisiToken.Descriptor)
-     return String;
-
-   type Recover_Token_Array is array (Positive_Index_Type range <>) of Recover_Token;
-
-   package Recover_Token_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
-     (Token_Index, Recover_Token, Default_Element => (others => <>));
-
-   function Image is new Recover_Token_Arrays.Gen_Image_Aux (WisiToken.Descriptor, Trimmed_Image, Image);
+   type Insert_Location is (After_Prev, Between, Before_Next);
 
    type Base_Identifier_Index is range 0 .. Integer'Last;
    subtype Identifier_Index is Base_Identifier_Index range 1 .. Base_Identifier_Index'Last;
@@ -441,7 +409,7 @@ package WisiToken is
    Outline     : constant := 0; -- spawn/terminate parallel parsers, error recovery enter/exit
    Detail      : constant := 1; -- add each parser cycle
    Extra       : constant := 2; -- add pending semantic state operations
-   Lexer_Debug : constant := 3; -- add lexer debug
+   Extreme     : constant := 3; -- add ?
 
    Trace_McKenzie : Integer  := 0;
    --  If Trace_McKenzie > 0, Parse prints messages helpful for debugging error recovery.
@@ -450,24 +418,58 @@ package WisiToken is
    --  Detail  - add each error recovery configuration
    --  Extra   - add error recovery parse actions
 
-   Trace_Action : Integer := 0;
-   --  Output during Execute_Action, and unit tests.
+   Trace_Lexer : Integer := 0;
 
+   Trace_Incremental_Parse : Integer := 0;
+
+   Trace_Action : Integer := 0;
+   --  Output during Execute_Action
+
+   Trace_Tests : Integer := 0;
+   --  Output during unit tests
+
+   Trace_Generate                  : Integer := 0;
    Trace_Generate_EBNF             : Integer := 0;
    Trace_Generate_Table            : Integer := 0;
+   Trace_Generate_Conflicts        : Integer := 0;
    Trace_Generate_Minimal_Complete : Integer := 0;
    --  Output during grammar generation.
 
    Trace_Time : Boolean := False;
    --  Output execution time for various things.
 
+   Trace_Memory : Integer := 0;
+
+   Trace_Parse_No_State_Numbers : Boolean := False;
+   --  For test_lr1_parallel.adb
+
    Debug_Mode : Boolean := False;
-   --  If True, Output stack traces, propagate exceptions to top level.
+   --  If True, output stack traces, propagate exceptions to top level.
    --  Otherwise, be robust to errors, so user does not notice them.
 
-   type Trace (Descriptor : not null access constant WisiToken.Descriptor) is abstract tagged limited null record;
-   --  Output for tests/debugging. Descriptor included here because many
-   --  uses of Trace will use Image (Item, Descriptor);
+   Test_McKenzie_Recover : Boolean := False;
+   --  True when running test_mckenzie_recover.adb; error recover stores
+   --  extra info for test.
+
+   procedure Enable_Trace (Config : in String);
+   --  Config has the format:
+   --
+   --  name=value ...
+   --
+   --  where "name" is the suffix of on of the Trace_* variables above
+   --  (or an abbreviation; see body), and "value" is an integer.
+   --
+   --  For Boolean variables, value > 0 is True, 0 is False.
+   --
+   --  In addition, the name "debug" sets Debug_Mode.
+
+   procedure Enable_Trace_Help;
+   --  Output to Text_IO.Current_Error a message describing available
+   --  options for Enable_Trace.
+
+   type Trace is abstract tagged limited null record;
+   type Trace_Access is access all Trace'Class;
+   --  Output for tests/debugging.
 
    procedure Set_Prefix (Trace : in out WisiToken.Trace; Prefix : in String) is abstract;
    --  Prepend Prefix to all subsequent messages. Usefull for adding
@@ -477,16 +479,27 @@ package WisiToken is
    --  Put Item to the Trace display. If Prefix is True, prepend the stored prefix.
 
    procedure Put_Line (Trace : in out WisiToken.Trace; Item : in String) is abstract;
-   --  Put Item to the Trace display, followed by a newline.
+   --  Put Item to the Trace display, preceded by the stored prefix, followed by a newline.
 
    procedure New_Line (Trace : in out WisiToken.Trace) is abstract;
-   --  Put a newline to the Trace display.
+   --  Put a newline to the Trace display (no prefix).
 
    procedure Put_Clock (Trace : in out WisiToken.Trace; Label : in String) is abstract;
-   --  Put Ada.Calendar.Clock to Trace.
+   --  Put Ada.Calendar.Clock to Trace, preceded by stored prefix.
+
+   Memory_Baseline : GNATCOLL.Memory.Byte_Count := 0;
+   --  This is only the Current value; trying to save the high water mark
+   --  for later subtraction does not make sense.
+
+   procedure Report_Memory (Trace : in out WisiToken.Trace'Class; Prefix : in Boolean);
+   --  Output data from GNATCOLL.Memory, relative to Memory_Baseline.
 
    ----------
    --  Misc
+
+   type Cache_Version is mod 2**16;
+
+   type Boolean_Access is access all Boolean;
 
    function "+" (Item : in String) return Ada.Strings.Unbounded.Unbounded_String
      renames Ada.Strings.Unbounded.To_Unbounded_String;
@@ -498,15 +511,25 @@ package WisiToken is
 
    function Error_Message
      (File_Name : in String;
-      Line      : in Line_Number_Type;
+      Line      : in Base_Line_Number_Type;
       Column    : in Ada.Text_IO.Count;
       Message   : in String)
      return String;
-   --  Return Gnu-formatted error message.
+   --  Return Gnu-formatted error message. Column parameter is origin 0
+   --  (WisiToken and Emacs standard); in formatted message it is origin
+   --  1 (Gnu coding standards [gnu_coding])
 
    type Names_Array is array (Integer range <>) of String_Access_Constant;
    type Names_Array_Access is access Names_Array;
    type Names_Array_Array is array (WisiToken.Token_ID range <>) of Names_Array_Access;
    type Names_Array_Array_Access is access Names_Array_Array;
+
+   function Next_Value
+     (Stream : not null access Ada.Streams.Root_Stream_Type'Class;
+      Delims : in              Ada.Strings.Maps.Character_Set)
+     return String;
+   --  Return a string from Stream, ending at a member of Delims or EOI
+   --  (ending delim is read from the stream but not included in result).
+   --  Leading Delims are skipped.
 
 end WisiToken;

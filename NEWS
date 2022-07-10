@@ -1,33 +1,68 @@
 GNU Emacs wisi NEWS -- history of user-visible changes.
 
-Copyright (C) 2014 - 2020 Free Software Foundation, Inc.
+Copyright (C) 2014 - 2022 Free Software Foundation, Inc.
 
 Please send wisi bug reports to bug-gnu-emacs@gnu.org, with
 'wisi' in the subject. If possible, use M-x report-emacs-bug.
 
 
-* wisi 3.1.8
-28 May 2022
+* wisi 4.0.0
+9 Jul 2022
 
-** Provide project-roots
+** Major redesign to support incremental parse.
 
-* wisi 3.1.7
-21 Nov 2021
+** New user custom variable wisi-incremental-parse-enable; when
+   non-nil, wisi uses incremental parse.
 
-** Correct last fix (sigh).
+** There is now a log buffer showing all interactions with the parser
+   process. The buffer name is given by
+   (wisi-parser-transaction-log-buffer-name parser); for Ada it is
+   "*Ada-wisi-parser-log*".
 
-* wisi 3.1.6
-21 Nov 2021
+** The buffer-local variable containing the wisi parser object is
+   split and renamed from wisi--parser to wisi-parser-shared, and
+   wisi-parser-local. wisi-parser-shared points to a per-language
+   structure; wisi-parser-local contains parser state that is buffer
+   local, such as error messages.
 
-** Adapt to change in xref.el xref-file-location.
+** The new command wisi-parse-tree-query allows querying the stored
+   parse tree for various things.
 
-* wisi 3.1.5
-30 Jul 2021
+** Redesign how indents add, and what some indent functions mean; see
+   wisi.info for details. In general, it is easier to arrange indent
+   actions to get the desired result. This may require grammar file
+   indent action changes; most likely add 'wisi-block' in block
+   statements.
 
-** Update several SAL files for compatibility with gnat FSF 11, Pro
-   22, Community 2021.
+** The algorithm for naming conflicts is now more accurate, and the
+   format of the %conflict declaration has changed. The old format is
+   still supported. Some conflicts have the same name, but others will
+   need to be updated.
 
-* wisi 3.1.3, 3.1.4 packaging error
+** wisitoken-parse_table-mode now provides a command
+   wisitoken-parse_table-conflict-goto that will find a conflict in
+   the parse table file. wisitoken-grammar-mode binds that command to
+   "\C-c."
+
+** wisitoken-parse_table-mode now provides a command
+   wisitoken-parse_table-goto that will find a nonterminal or state in
+   the parse table file. It is recommended to bind that command to
+   "\C-c.", either in global-key-map, or in modes that typically have
+   nonterminals or states.
+
+** parser process protocol version 6
+    add zombie_limit
+    add error-pos in Recover
+    replace debug-mode, trace-mckenzie, trace-action with verbosity string
+    delete wisi-mckenzie-disable, -check-limit
+    add incremental parse
+    increase command length to 4 digits
+    add query_tree command
+
+* wisi 3.1.3
+5 Jun 2020
+
+** Fix packaging bug.
 
 * wisi 3.1.2
 4 Jun 2020

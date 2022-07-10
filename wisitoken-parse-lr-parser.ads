@@ -5,7 +5,7 @@
 --  In a child package of Parser.LR partly for historical reasons,
 --  partly to allow McKenzie_Recover to be in a sibling package.
 --
---  Copyright (C) 2002, 2003, 2009, 2010, 2013-2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2002, 2003, 2009, 2010, 2013-2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -25,19 +25,15 @@ pragma License (Modified_GPL);
 
 with WisiToken.Parse.LR.Parser_Lists;
 with WisiToken.Lexer;
-with WisiToken.Parse;
 with WisiToken.Syntax_Trees;
+limited with WisiToken.Parse.LR.McKenzie_Recover.Base;
 package WisiToken.Parse.LR.Parser is
-
-   Default_Max_Parallel : constant := 15;
+   type Parser;
 
    type Language_Fixes_Access is access procedure
-     (Trace             : in out WisiToken.Trace'Class;
-      Lexer             : access constant WisiToken.Lexer.Instance'Class;
-      Parser_Label      : in     Natural;
-      Parse_Table       : in     WisiToken.Parse.LR.Parse_Table;
-      Terminals         : in     Base_Token_Arrays.Vector;
-      Tree              : in     Syntax_Trees.Tree;
+     (Super             : in out Base.Supervisor;
+      Shared_Parser     : in out Parser;
+      Parser_Index      : in     SAL.Peek_Type;
       Local_Config_Heap : in out Config_Heaps.Heap_Type;
       Config            : in     Configuration);
    --  Config encountered a parse table Error action, or failed a
@@ -54,20 +50,25 @@ package WisiToken.Parse.LR.Parser is
    --  caused the error.
 
    type Language_Matching_Begin_Tokens_Access is access procedure
-     (Tokens                  : in     Token_ID_Array_1_3;
-      Config                  : in     Configuration;
-      Matching_Tokens         :    out Token_ID_Arrays.Vector;
-      Forbid_Minimal_Complete :    out Boolean);
-   --  Tokens (1) caused a parse error; Tokens (2 .. 3) are the following
-   --  tokens (Invalid_Token_ID if none). Set Matching_Tokens to a token
-   --  sequence that starts a production matching Tokens. If
-   --  Minimal_Complete would produce a bad solution at this error point,
-   --  set Forbid_Minimal_Complete True.
+     (Super                   :         in out Base.Supervisor;
+      Shared_Parser           :         in out Parser;
+      Tokens                  :         in     Token_ID_Array_1_3;
+      Config                  : aliased in     Configuration;
+      Matching_Tokens         :         in out Token_ID_Arrays.Vector;
+      Forbid_Minimal_Complete :         in out Boolean);
+   --  Tokens (1) is the current token; Tokens (2 .. 3) are the following
+   --  tokens (Invalid_Token_ID if none). Set Matching_Tokens to a
+   --  terminal token sequence that starts a production matching Tokens.
+   --  If Minimal_Complete would produce a bad solution at this error
+   --  point, set Forbid_Minimal_Complete True.
    --
    --  For example, if Tokens is a block end, return tokens that are the
    --  corresponding block begin. If the error point is inside a
    --  multi-token 'end' (ie 'end if;', or 'end <name>;'), set
    --  Forbid_Minimal_Complete True.
+   --
+   --  ada-mode uses Peek_Sequential_Start in this subprogram, so it
+   --  requires Super, Shared_Parser, aliased Config.
 
    type Language_String_ID_Set_Access is access function
      (Descriptor        : in WisiToken.Descriptor;
@@ -77,86 +78,65 @@ package WisiToken.Parse.LR.Parser is
    --  nonterminals that can contain String_Literal_ID as part of an
    --  expression. Used in placing a missing string quote.
 
-   type Post_Recover_Access is access procedure;
-
    type Parser is new WisiToken.Parse.Base_Parser with record
       Table                          : Parse_Table_Ptr;
       Language_Fixes                 : Language_Fixes_Access;
       Language_Matching_Begin_Tokens : Language_Matching_Begin_Tokens_Access;
       Language_String_ID_Set         : Language_String_ID_Set_Access;
 
-      String_Quote_Checked : Line_Number_Type := Invalid_Line_Number;
+      String_Quote_Checked : Base_Line_Number_Type := Invalid_Line_Number;
       --  Max line checked for missing string quote.
 
-      Post_Recover : Post_Recover_Access;
-      --  Gather data for tests.
-
-      Shared_Tree : aliased Syntax_Trees.Base_Tree;
-      --  Each parser (normal and recover) has its own branched syntax tree,
-      --  all branched from this tree. Terminals are added to the tree when
-      --  they become the current token.
-      --
-      --  It is never the case that terminals are added to this shared tree
-      --  when there is more than one task active, so we don't need a
-      --  protected tree.
-      --
-      --  See WisiToken.LR.Parser_Lists Parser_State for more discussion of
-      --  Shared_Tree.
+      Resume_Active : Boolean := False;
+      Min_Sequential_Index : Syntax_Trees.Sequential_Index := Syntax_Trees.Sequential_Index'Last;
+      Max_Sequential_Index : Syntax_Trees.Sequential_Index := Syntax_Trees.Sequential_Index'First;
 
       Parsers : aliased Parser_Lists.List;
 
-      Max_Parallel            : SAL.Base_Peek_Type;
-      Terminate_Same_State    : Boolean;
-      Enable_McKenzie_Recover : Boolean;
-      Recover_Log_File        : Ada.Text_IO.File_Type;
-      Partial_Parse_Active    : Boolean := False;
-      --  Partial_Parse_Active is only used in recover log messages.
+      Partial_Parse_Active    : access Boolean;
+      Partial_Parse_Byte_Goal : access WisiToken.Buffer_Pos;
+      --  Used by In_Parse_Actions to terminate Partial_Parse.
    end record;
 
-   overriding procedure Finalize (Object : in out LR.Parser.Parser);
-   --  Deep free Object.Table.
+   --  It is tempting to declare Finalize here, to free Parser.Table. But
+   --  Wisi.Parse_Context reuses the table between parser instances, so
+   --  we can't do that. Other applications must explicitly free
+   --  Parser.Table if they care.
 
    procedure New_Parser
-     (Parser                         :    out          LR.Parser.Parser;
-      Trace                          : not null access WisiToken.Trace'Class;
-      Lexer                          : in              WisiToken.Lexer.Handle;
-      Table                          : in              Parse_Table_Ptr;
-      Language_Fixes                 : in              Language_Fixes_Access;
-      Language_Matching_Begin_Tokens : in              Language_Matching_Begin_Tokens_Access;
-      Language_String_ID_Set         : in              Language_String_ID_Set_Access;
-      User_Data                      : in              WisiToken.Syntax_Trees.User_Data_Access;
-      Max_Parallel                   : in              SAL.Base_Peek_Type := Default_Max_Parallel;
-      Terminate_Same_State           : in              Boolean            := True);
+     (Parser                         :    out LR.Parser.Parser;
+      Lexer                          : in     WisiToken.Lexer.Handle;
+      Table                          : in     Parse_Table_Ptr;
+      Productions                    : in     Syntax_Trees.Production_Info_Trees.Vector;
+      Language_Fixes                 : in     Language_Fixes_Access;
+      Language_Matching_Begin_Tokens : in     Language_Matching_Begin_Tokens_Access;
+      Language_String_ID_Set         : in     Language_String_ID_Set_Access;
+      User_Data                      : in     WisiToken.Syntax_Trees.User_Data_Access);
 
-   overriding procedure Parse (Shared_Parser : aliased in out LR.Parser.Parser);
-   --  Attempt a parse. Calls Parser.Lexer.Reset, runs lexer to end of
-   --  input setting Shared_Parser.Terminals, then parses tokens.
-   --
-   --  If an error is encountered, Parser.Lexer_Errors and
-   --  Parsers(*).Errors contain information about the errors. If a
-   --  recover strategy succeeds, no exception is raised. If recover does
-   --  not succeed, raises Syntax_Error.
-   --
-   --  For errors where no recovery is possible, raises Parse_Error with
-   --  an appropriate error message.
+   procedure Edit_Tree
+     (Parser : in out LR.Parser.Parser;
+      Edits  : in     KMN_Lists.List)
+   with Pre => Parser.Tree.Editable,
+     Post => Parser.Tree.Stream_Count = 1;
+   --  Assumes Parser.Lexer.Source has changed in a way reflected in
+   --  Edits. Uses Edits to direct editing Parser.Tree to reflect lexing
+   --  the changed source, in preparation for Incremental_Parse; result
+   --  is in Tree.Shared_Stream.
 
-   overriding function Tree (Shared_Parser : in Parser) return Syntax_Trees.Tree;
-   overriding function Tree_Var_Ref (Shared_Parser : aliased in out Parser) return Syntax_Trees.Tree_Variable_Reference;
-   --  If there is one parser in Parsers, return its tree. Otherwise,
-   --  raise Parse_Error for an ambiguous parse.
+   overriding procedure Parse
+     (Shared_Parser    : in out LR.Parser.Parser;
+      Recover_Log_File : in     Ada.Text_IO.File_Type;
+      Edits            : in     KMN_Lists.List := KMN_Lists.Empty_List;
+      Pre_Edited       : in     Boolean        := False);
 
    overriding procedure Execute_Actions
-     (Parser          : in out LR.Parser.Parser;
-      Image_Augmented : in     Syntax_Trees.Image_Augmented := null);
-   --  Call User_Data.Delete_Token on any tokens deleted by error
-   --  recovery, then User_Data.Reduce and the grammar semantic actions
-   --  on all nonterms in the syntax tree.
-
-   overriding function Any_Errors (Parser : in LR.Parser.Parser) return Boolean;
-   --  Return True if any errors where encountered, recovered or not.
-
-   overriding procedure Put_Errors (Parser : in LR.Parser.Parser);
-   --  Put user-friendly error messages from the parse to
-   --  Ada.Text_IO.Current_Error.
+     (Parser              : in out LR.Parser.Parser;
+      Action_Region_Bytes : in     WisiToken.Buffer_Region);
+   --  Call Parser.User_Data.Insert_Token, Parser.User_Data.Delete_Token
+   --  on any tokens inserted/deleted by error recovery. Update
+   --  Parser.Line_Begin_Tokens to reflect error recovery. Then call
+   --  User_Data.Reduce and the grammar post parse actions on all
+   --  nonterms in the syntax tree that overlap Action_Region_Bytes, by
+   --  traversing the tree in depth-first order.
 
 end WisiToken.Parse.LR.Parser;

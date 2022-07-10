@@ -2,7 +2,7 @@
 --
 --  Types and operations shared by Ada and Ada_Emacs outputs.
 --
---  Copyright (C) 2017, 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2017, 2018, 2020 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -38,6 +38,7 @@ package WisiToken.BNF.Output_Ada_Common is
    function Initialize
      (Input_Data        : in WisiToken_Grammar_Runtime.User_Data_Type;
       Tuple             : in Generate_Tuple;
+      Grammar_File_Name : in String;
       Output_File_Root  : in String;
       Check_Interface   : in Boolean)
      return Common_Data;
@@ -63,28 +64,39 @@ package WisiToken.BNF.Output_Ada_Common is
       Tuple                : in Generate_Tuple;
       Input_Data           : in WisiToken_Grammar_Runtime.User_Data_Type);
 
-   procedure LR_Create_Create_Parser
-     (Input_Data    :         in     WisiToken_Grammar_Runtime.User_Data_Type;
-      Common_Data   :         in out Output_Ada_Common.Common_Data;
-      Generate_Data : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data);
+   procedure LR_Create_Create_Parse_Table
+     (Input_Data           :         in     WisiToken_Grammar_Runtime.User_Data_Type;
+      Common_Data          :         in out Output_Ada_Common.Common_Data;
+      Generate_Data        : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data;
+      Actions_Package_Name :         in     String);
    --  If not Common_Data.Text_Rep, includes LR parse table in generated
    --  source. Otherwise, includes call to LR.Get_Text_Rep; caller must
    --  call Put_Text_Rep to create file.
 
    procedure Packrat_Create_Create_Parser
-     (Common_Data   :         in out Output_Ada_Common.Common_Data;
-      Generate_Data : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data;
-      Packrat_Data  :         in     WisiToken.Generate.Packrat.Data);
+     (Actions_Package_Name :         in     String;
+      Common_Data          :         in out Output_Ada_Common.Common_Data;
+      Generate_Data        : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data;
+      Packrat_Data         :         in     WisiToken.Generate.Packrat.Data);
 
    procedure External_Create_Create_Grammar
      (Generate_Data : in WisiToken.BNF.Generate_Utils.Generate_Data);
 
-   procedure Create_re2c
+   procedure Create_Create_Productions
+     (Generate_Data : in WisiToken.BNF.Generate_Utils.Generate_Data);
+
+   procedure Create_re2c_File
      (Input_Data            :         in WisiToken_Grammar_Runtime.User_Data_Type;
       Tuple                 :         in Generate_Tuple;
       Generate_Data         : aliased in WisiToken.BNF.Generate_Utils.Generate_Data;
       Output_File_Name_Root :         in String);
    --  Create_re2c is called from wisitoken-bnf-generate, which does not declare
    --  Common_Data.
+
+   procedure Create_re2c_Lexer
+     (Generate_Data         : aliased in WisiToken.BNF.Generate_Utils.Generate_Data;
+      Output_File_Name_Root :         in String);
+   --  Output, to Ada.Text_IO.Current_Output, source code that
+   --  instantiates WisiToken.Lexer.re2c.
 
 end WisiToken.BNF.Output_Ada_Common;

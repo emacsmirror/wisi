@@ -2,7 +2,7 @@
 --
 --  Common utilities for Gen_Emacs_Wisi_*_Parse
 --
---  Copyright (C) 2018 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This program is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -21,10 +21,11 @@ pragma License (GPL);
 with Ada.Strings.Unbounded;
 with System;
 with Wisi;
-with WisiToken.Parse.LR.Parser;
+with WisiToken.Parse;
+with Wisi.Parse_Context;
 package Emacs_Wisi_Common_Parse is
 
-   Protocol_Version : constant String := "5";
+   Protocol_Version : constant String := "6";
    --  Protocol_Version defines the data sent between elisp and the
    --  background process, except for the language-specific parameters,
    --  which are defined by the Language_Protocol_Version parameter to
@@ -37,28 +38,21 @@ package Emacs_Wisi_Common_Parse is
    --  the implementation of the protocol.
    --
    --  Only changes once per wisi release. Increment as soon as required,
-   --  record new version in NEWS-wisi.text.
+   --  record new version in NEWS-wisi.text. If working on a branch and
+   --  main has already incremented, increment again, in case main is
+   --  released before branch is merged; leave two "increment protocol"
+   --  lines in NEWS-wisi.text to indicate the issue.
 
    Prompt : constant String := ";;> ";
 
-   Protocol_Error : exception;
-   Finish         : exception;
+   Finish : exception;
 
    procedure Usage (Name : in String);
 
    procedure Read_Input (A : System.Address; N : Integer);
+   --  Read N bytes from standard_input to A.
 
    function Get_Command_Length return Integer;
-
-   function Get_String
-     (Source : in     String;
-      Last   : in out Integer)
-     return String;
-
-   function Get_Integer
-     (Source : in     String;
-      Last   : in out Integer)
-     return Integer;
 
    type Process_Start_Params is record
       Recover_Log_File_Name : Ada.Strings.Unbounded.Unbounded_String;
@@ -70,86 +64,107 @@ package Emacs_Wisi_Common_Parse is
    --  raising Finish.
 
    procedure Process_Stream
-     (Name                      : in     String;
-      Language_Protocol_Version : in     String;
-      Partial_Parse_Active      : in out Boolean;
-      Params                    : in     Process_Start_Params;
-      Parser                    : in out WisiToken.Parse.LR.Parser.Parser;
-      Parse_Data                : in out Wisi.Parse_Data_Type'Class;
-      Descriptor                : in     WisiToken.Descriptor);
+     (Name                      : in String;
+      Language_Protocol_Version : in String;
+      Params                    : in Process_Start_Params;
+      Language                  : in Wisi.Parse_Context.Language;
+      Trace                     : in WisiToken.Trace_Access);
 
    ----------
    --  Parse command
 
-   type Parse_Params is record
-      Post_Parse_Action : Wisi.Post_Parse_Action_Type;
+   type Parse_Kind is (Partial, Incremental, Full);
+
+   type Parse_Params (Kind : Parse_Kind) is record
+      --  See Get_Parse_Params in body for what elisp this must match.
+
       Source_File_Name  : Ada.Strings.Unbounded.Unbounded_String;
 
-      Begin_Byte_Pos : Integer;
-      --  Source file byte position of first char sent; start parse here.
+      Verbosity     : Ada.Strings.Unbounded.Unbounded_String;
+      Task_Count    : Integer;
+      Zombie_Limit  : Integer;
+      Enqueue_Limit : Integer;
+      Max_Parallel  : Integer;
 
-      End_Byte_Pos : Integer;
-      --  Byte position of last char sent.
+      Language_Params : Ada.Strings.Unbounded.Unbounded_String;
 
-      Goal_Byte_Pos : Integer;
-      --  Byte position of end of desired parse region; terminate parse at
-      --  or after here.
+      case Kind is
+      when Partial =>
+         Post_Parse_Action : Wisi.Post_Parse_Action_Type;
 
-      Begin_Char_Pos : WisiToken.Buffer_Pos;
-      --  Char position of first char sent.
+         Begin_Byte_Pos : Integer;
+         --  Source file byte position of first char sent; start parse here.
 
-      Begin_Line : WisiToken.Line_Number_Type;
-      End_Line   : WisiToken.Line_Number_Type;
-      --  Line number of line containing Begin_Byte_Pos, End_Byte_Pos
+         End_Byte_Pos : Integer;
+         --  Byte position of last char sent.
+         --  Emacs convention; after last char
 
-      Begin_Indent : Integer;
-      --  Indentation of Line_Begin
+         Goal_Byte_Pos : Integer;
+         --  Byte position of end of desired parse region; terminate parse at
+         --  or after here.
 
-      Partial_Parse_Active : Boolean;
-      Debug_Mode           : Boolean;
-      Parse_Verbosity      : Integer;
-      McKenzie_Verbosity   : Integer;
-      Action_Verbosity     : Integer;
-      McKenzie_Disable     : Integer;
-      Task_Count           : Integer;
-      Check_Limit          : Integer;
-      Enqueue_Limit        : Integer;
-      Max_Parallel         : Integer;
-      Byte_Count           : Integer;
-      --  Count of bytes of source file sent.
+         Begin_Char_Pos : WisiToken.Buffer_Pos;
+         End_Char_Pos   : WisiToken.Base_Buffer_Pos;
+         Goal_Char_Pos  : WisiToken.Buffer_Pos;
+         --  Corresponding char positions; end is 0 if buffer empty.
+
+         Begin_Line : WisiToken.Line_Number_Type;
+         --  Line containing Begin_Byte_Pos
+
+         Begin_Indent : Integer;
+         --  Indentation of Line_Begin
+
+         Partial_Parse_Active : Boolean;
+
+      when Incremental =>
+         Changes : Wisi.Parse_Context.Change_Lists.List;
+
+      when Full =>
+         Byte_Count        : Integer;
+         Full_End_Char_Pos : WisiToken.Base_Buffer_Pos; -- 0 if buffer empty.
+
+      end case;
    end record;
 
    function Get_Parse_Params (Command_Line : in String; Last : in out Integer) return Parse_Params;
+   --  Raise Protocol_Error if, after processing Command_Line, Last /=
+   --  Command_Line'Last.
+
+   ----------
+   --  Post-Parse command
+
+   type Post_Parse_Params is record
+      Source_File_Name  : Ada.Strings.Unbounded.Unbounded_String;
+      Verbosity         : Ada.Strings.Unbounded.Unbounded_String;
+      Post_Parse_Action : Wisi.Post_Parse_Action_Type;
+
+      Begin_Byte_Pos : Integer;
+      Begin_Char_Pos : Integer;
+      End_Byte_Pos   : Integer;
+      End_Char_Pos   : Integer;
+      --  Region to execute action in.
+      --  Emacs convention; end is after last char
+
+      Language_Params : Ada.Strings.Unbounded.Unbounded_String;
+   end record;
+
+   function Get_Post_Parse_Params (Command_Line : in String; Last : in out Integer) return Post_Parse_Params;
+   --  Raise Protocol_Error if, after processing Command_Line, Last /=
+   --  Command_Line'Last.
 
    ----------
    --  Refactor command
 
    type Refactor_Params is record
-      Refactor_Action  : Positive; -- Language-specific
+      Refactor_Action  : Wisi.Refactor_Action; -- Language-specific
       Source_File_Name : Ada.Strings.Unbounded.Unbounded_String;
-
-      Parse_Region : WisiToken.Buffer_Region;
-      --  Source file byte region to parse.
 
       Edit_Begin : WisiToken.Buffer_Pos;
       --  Source file byte position at start of expression to refactor.
 
-      Parse_Begin_Char_Pos : WisiToken.Buffer_Pos;
-      --  Char position of first char sent.
+      Verbosity : Ada.Strings.Unbounded.Unbounded_String;
 
-      Parse_Begin_Line : WisiToken.Line_Number_Type;
-      Parse_End_Line   : WisiToken.Line_Number_Type;
-      --  Line numbers of lines containing Parse_Begin_Byte_Pos, Parse_End_Byte_Pos
-
-      Parse_Begin_Indent : Integer;
-      --  Indentation of Parse_Begin_Line
-
-      Debug_Mode       : Boolean;
-      Parse_Verbosity  : Integer;
-      Action_Verbosity : Integer;
-      Max_Parallel     : Integer;
-      Byte_Count       : Integer;
-      --  Count of bytes of source file sent.
+      --  no Language_Params
    end record;
 
    function Get_Refactor_Params (Command_Line : in String; Last : in out Integer) return Refactor_Params;

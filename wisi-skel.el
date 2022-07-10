@@ -1,6 +1,6 @@
 ;;; wisi-skel.el --- Extensions skeleton  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1987, 1993, 1994, 1996-2020  Free Software Foundation, Inc.
+;; Copyright (C) 1987, 1993, 1994, 1996-2021  Free Software Foundation, Inc.
 
 ;; Authors: Stephen Leake <stephen_leake@stephe-leake.org>
 
@@ -62,8 +62,8 @@ after AFTER-1. If AFTER-1 is a nested alist, add the new entry after AFTER-2."
 
 (defun wisi-skel-build-prompt (alist count)
   "Build a prompt from the keys of the ALIST.
-The prompt consists of the first COUNT keys from the alist, separated by `|', with
-trailing `...' if there are more keys."
+The prompt consists of the first COUNT keys from the alist,
+separated by `|', with trailing `...' if there are more keys."
   (if (>= count (length alist))
       (concat (mapconcat 'car alist " | ") " : ")
     (let ((alist-1 (butlast alist (- (length alist) count))))
@@ -74,6 +74,9 @@ trailing `...' if there are more keys."
   "Override prompt for input from wisi-skel-token-alist, for unit testing."
   ;; see test/ada_skel.adb
   )
+
+(defun wisi-skel-enable-parse ()
+  (setq wisi-inhibit-parse nil));
 
 (defun wisi-skel-expand (&optional name)
   "Expand the token or placeholder before point to a skeleton.
@@ -88,7 +91,12 @@ before that as the token."
   ;; Standard comment end included for languages where that is newline.
   (skip-syntax-backward " !>")
 
-  (let* ((wisi-inhibit-parse t) ;; don't parse until skeleton is fully inserted
+  (let* ((wisi-inhibit-parse t)
+	 ;; Don't parse until skeleton is fully inserted. However,
+	 ;; this is still set when skeleton-end-hook is called; user
+	 ;; will probably put wisi-indent-statement on that hook. So
+	 ;; we add wisi-skel-enable-parse.
+
 	 (end (point))
 	 ;; Include punctuation here, to handle a dotted name (ie Ada.Text_IO)
 	 (token (progn (skip-syntax-backward "w_.")
@@ -182,6 +190,9 @@ before that as the token."
   "Move point to after previous placeholder."
   (interactive)
   (skip-syntax-backward "^!"))
+
+;;;###autoload
+(add-hook 'skeleton-end-hook #'wisi-skel-enable-parse 90)
 
 (provide 'wisi-skel)
 ;;; wisi-skel.el ends here

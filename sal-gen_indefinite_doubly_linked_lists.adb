@@ -2,7 +2,7 @@
 --
 --  see spec
 --
---  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -111,6 +111,13 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
       Container.Count := Container.Count + 1;
    end Prepend;
 
+   function To_List (Element : in Element_Type) return List
+   is begin
+      return Result : List do
+         Result.Append (Element);
+      end return;
+   end To_List;
+
    function Has_Element (Position : in Cursor) return Boolean
    is begin
       return Position.Ptr /= null;
@@ -124,6 +131,15 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
          return (Ptr => Container.Head);
       end if;
    end First;
+
+   function Last (Container : in List) return Cursor
+   is begin
+      if Container.Tail = null then
+         return (Ptr => null);
+      else
+         return (Ptr => Container.Tail);
+      end if;
+   end Last;
 
    procedure Next (Position : in out Cursor)
    is begin
@@ -149,10 +165,29 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
       end if;
    end Next;
 
+   function Previous (Position : in Cursor) return Cursor
+   is begin
+      if Position.Ptr = null then
+         return Position;
+      else
+         if Position.Ptr.Prev = null then
+            return (Ptr => null);
+         else
+            return (Ptr => Position.Ptr.Prev);
+         end if;
+      end if;
+   end Previous;
+
    function Element (Position : in Cursor) return Element_Type
    is begin
       return Position.Ptr.Element.all;
    end Element;
+
+   function Append (Container : in out List; Element : in Element_Type) return Cursor
+   is begin
+      Append (Container, Element);
+      return (Ptr => Container.Tail);
+   end Append;
 
    procedure Delete (Container : in out List; Position : in out Cursor)
    is
@@ -174,39 +209,58 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
       Container.Count := Container.Count - 1;
    end Delete;
 
-   function Persistent_Ref (Position : in Cursor) return access Element_Type
+   function Unchecked_Ref (Position : in Cursor) return access Element_Type
    is begin
       return Position.Ptr.Element;
-   end Persistent_Ref;
+   end Unchecked_Ref;
 
    function Constant_Ref (Position : in Cursor) return Constant_Reference_Type
    is begin
       return (Element => Position.Ptr.all.Element, Dummy => 1);
    end Constant_Ref;
 
-   function Constant_Reference (Container : in List; Position : in Peek_Type) return Constant_Reference_Type
-   is
-      Ptr : Node_Access := Container.Head;
-   begin
-      for I in 2 .. Position loop
-         Ptr := Ptr.Next;
-      end loop;
-      return (Element => Ptr.all.Element, Dummy => 1);
+   function Constant_Reference (Container : in List; Position : in Cursor) return Constant_Reference_Type
+   is begin
+      return (Element => Position.Ptr.Element, Dummy => 1);
    end Constant_Reference;
 
-   function Variable_Reference (Container : in List; Position : in Peek_Type) return Variable_Reference_Type
-   is
-      Ptr : Node_Access := Container.Head;
-   begin
-      for I in 2 .. Position loop
-         Ptr := Ptr.Next;
-      end loop;
-      return (Element => Ptr.all.Element, Dummy => 1);
+   function Variable_Reference (Container : in List; Position : in Cursor) return Variable_Reference_Type
+   is begin
+      return (Element => Position.Ptr.Element, Dummy => 1);
    end Variable_Reference;
 
    function Variable_Ref (Position : in Cursor) return Variable_Reference_Type
    is begin
-      return (Element => Position.Ptr.all.Element, Dummy => 1);
+      return (Element => Position.Ptr.Element, Dummy => 1);
    end Variable_Ref;
+
+   function Iterate (Container : aliased in List) return Iterator_Interfaces.Reversible_Iterator'Class
+   is begin
+      return Iterator'(Container => Container'Access);
+   end Iterate;
+
+   overriding function First (Object : Iterator) return Cursor
+   is begin
+      return First (Object.Container.all);
+   end First;
+
+   overriding function Last  (Object : Iterator) return Cursor
+   is begin
+      return Last (Object.Container.all);
+   end Last;
+
+   overriding function Next (Object : in Iterator; Position : in Cursor) return Cursor
+   is
+      pragma Unreferenced (Object);
+   begin
+      return Next (Position);
+   end Next;
+
+   overriding function Previous (Object : in Iterator; Position : in Cursor) return Cursor
+   is
+      pragma Unreferenced (Object);
+   begin
+      return Previous (Position);
+   end Previous;
 
 end SAL.Gen_Indefinite_Doubly_Linked_Lists;

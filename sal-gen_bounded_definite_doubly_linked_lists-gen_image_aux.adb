@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2018 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2020 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -17,24 +17,24 @@
 
 pragma License (Modified_GPL);
 
-with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
-function SAL.Gen_Bounded_Definite_Vectors.Gen_Image (Item : in Vector) return String
+function SAL.Gen_Bounded_Definite_Doubly_Linked_Lists.Gen_Image_Aux (Item : in List; Aux : in Aux_Data) return String
 is
-   use Ada.Strings;
    use Ada.Strings.Unbounded;
    Result : Unbounded_String        := To_Unbounded_String ("(");
-   Last   : constant Base_Peek_Type := To_Peek_Index (Item.Last);
+   Node   : Base_Peek_Type := Item.Head;
 begin
-   for I in 1 .. Last loop
-      Result := Result &
-        (if Trim
-         then Fixed.Trim (Element_Image (Item.Elements (I)), Left)
-         else Element_Image (Item.Elements (I)));
-      if I /= Last then
+   if Node /= Invalid_Peek_Index then
+      loop
+         Result := Result & Element_Image (Item.Nodes (Node).Element, Aux);
+
+         Node := Item.Nodes (Node).Next;
+
+         exit when Node = Invalid_Peek_Index;
+
          Result := Result & ", ";
-      end if;
-   end loop;
+      end loop;
+   end if;
    Result := Result & ")";
    return To_String (Result);
-end SAL.Gen_Bounded_Definite_Vectors.Gen_Image;
+end SAL.Gen_Bounded_Definite_Doubly_Linked_Lists.Gen_Image_Aux;

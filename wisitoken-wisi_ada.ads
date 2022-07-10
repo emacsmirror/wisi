@@ -2,7 +2,7 @@
 --
 --  Type and operations for building a grammar directly in Ada source.
 --
---  Copyright (C) 2003, 2013 - 2015, 2017, 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2003, 2013 - 2015, 2017, 2018, 2020 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -36,13 +36,13 @@ package WisiToken.Wisi_Ada is
 
    function "+"
      (Tokens : in WisiToken.Token_ID_Arrays.Vector;
-      Action : in WisiToken.Syntax_Trees.Semantic_Action)
+      Action : in WisiToken.Syntax_Trees.Post_Parse_Action)
      return WisiToken.Productions.Right_Hand_Side;
    function "+"
      (Tokens : in Token_ID;
-      Action : in WisiToken.Syntax_Trees.Semantic_Action)
+      Action : in WisiToken.Syntax_Trees.Post_Parse_Action)
      return WisiToken.Productions.Right_Hand_Side;
-   function "+" (Action : in WisiToken.Syntax_Trees.Semantic_Action) return WisiToken.Productions.Right_Hand_Side;
+   function "+" (Action : in WisiToken.Syntax_Trees.Post_Parse_Action) return WisiToken.Productions.Right_Hand_Side;
    --  Create the right hand side of a production.
 
    function Only (Item : in WisiToken.Productions.Right_Hand_Side) return WisiToken.Productions.RHS_Arrays.Vector;

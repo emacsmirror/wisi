@@ -4,7 +4,7 @@
 --  parameters, and a parser for that grammar. The grammar parser
 --  actions must be Ada.
 --
---  Copyright (C) 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2022 Free Software Foundation, Inc.
 --
 --  The WisiToken package is free software; you can redistribute it
 --  and/or modify it under terms of the GNU General Public License as
@@ -23,6 +23,7 @@ pragma License (Modified_GPL);
 with Ada.Strings.Fixed;
 with Ada.Text_IO; use Ada.Text_IO;
 with GNAT.Regexp;
+with System.Multiprocessors;
 with WisiToken.BNF.Generate_Packrat;
 with WisiToken.BNF.Generate_Utils;
 with WisiToken.BNF.Output_Ada_Common; use WisiToken.BNF.Output_Ada_Common;
@@ -30,19 +31,24 @@ with WisiToken.Generate.Packrat;
 with WisiToken_Grammar_Runtime;
 procedure WisiToken.BNF.Output_Ada
   (Input_Data            :         in WisiToken_Grammar_Runtime.User_Data_Type;
+   Grammar_File_Name     :         in String;
    Output_File_Name_Root :         in String;
    Generate_Data         : aliased in WisiToken.BNF.Generate_Utils.Generate_Data;
    Packrat_Data          :         in WisiToken.Generate.Packrat.Data;
    Tuple                 :         in Generate_Tuple;
    Test_Main             :         in Boolean;
-   Multiple_Tuples       :         in Boolean)
+   Multiple_Tuples       :         in Boolean;
+   Generate_Task_Count   :         in System.Multiprocessors.CPU_Range)
 is
    Common_Data : Output_Ada_Common.Common_Data := WisiToken.BNF.Output_Ada_Common.Initialize
-     (Input_Data, Tuple, Output_File_Name_Root, Check_Interface => False);
+     (Input_Data, Tuple, Grammar_File_Name, Output_File_Name_Root, Check_Interface => False);
 
    Gen_Alg_Name : constant String :=
      (if Test_Main or Multiple_Tuples
-      then "_" & Generate_Algorithm_Image (Common_Data.Generate_Algorithm).all
+      then "_" & Generate_Algorithm_Image (Common_Data.Generate_Algorithm).all &
+         (if Common_Data.Generate_Algorithm = LR1
+         then "_t" & Ada.Strings.Fixed.Trim (Generate_Task_Count'Image, Ada.Strings.Both)
+         else "")
       else "");
 
    function Symbol_Regexp (Item : in String) return String
@@ -61,7 +67,7 @@ is
       Label_Count  : in              Ada.Containers.Count_Type;
       Package_Name : in              String)
    is
-      use all type Ada.Containers.Count_Type;
+      pragma Unreferenced (Label_Count);
       use GNAT.Regexp;
       use Generate_Utils;
       use WisiToken.Generate;
@@ -71,7 +77,6 @@ is
       User_Data_Regexp : constant Regexp := Compile (Symbol_Regexp ("User_Data"), Case_Sensitive => False);
       Tree_Regexp      : constant Regexp := Compile (Symbol_Regexp ("Tree"), Case_Sensitive      => False);
       Nonterm_Regexp   : constant Regexp := Compile (Symbol_Regexp ("Nonterm"), Case_Sensitive   => False);
-      Tokens_Regexp    : constant Regexp := Compile (Symbol_Regexp ("Tokens"), Case_Sensitive    => False);
 
       Body_File : File_Type;
    begin
@@ -83,18 +88,20 @@ is
       Put_Raw_Code (Ada_Comment, Input_Data.Raw_Code (Actions_Body_Context));
       New_Line;
 
-      if Label_Count > 0 then
-         Put_Line ("with SAL;");
+      --  If labels are used in actions, we need to add 'with SAL;' here,
+      --  for Peek_Type. However, we can't just check Label_Count > 0,
+      --  because some declared labels are not actually used in actions. The
+      --  user will have to add 'with SAL;' in a code declaration.
+
+      if Input_Data.Check_Count > 0 then
+         --  For Match_Names etc
+         Indent_Line ("with  WisiToken.In_Parse_Actions; use WisiToken.In_Parse_Actions;");
+         New_Line;
       end if;
 
       Put_Line ("package body " & Package_Name & " is");
       Indent := Indent + 3;
       New_Line;
-
-      if Input_Data.Check_Count > 0 then
-         Indent_Line ("use WisiToken.Semantic_Checks;");
-         New_Line;
-      end if;
 
       Put_Raw_Code (Ada_Comment, Input_Data.Raw_Code (Actions_Body_Pre));
 
@@ -108,13 +115,6 @@ is
 
             LHS_ID    : constant WisiToken.Token_ID := Find_Token_ID (Generate_Data, -Rule.Left_Hand_Side);
             RHS_Index : Integer                     := 0;
-
-            function Is_Elisp (Action : in Unbounded_String) return Boolean
-            is begin
-               return Length (Action) >= 6 and then
-                 (Slice (Action, 1, 6) = "(progn" or
-                    Slice (Action, 1, 5) = "wisi-");
-            end Is_Elisp;
 
             procedure Put_Labels (RHS : in RHS_Type; Line : in String)
             is
@@ -154,7 +154,7 @@ is
 
          begin
             for RHS of Rule.Right_Hand_Sides loop
-               if Length (RHS.Action) > 0 and then not Is_Elisp (RHS.Action) then
+               if Length (RHS.Action) > 0 then
                   declare
                      Line : constant String := -RHS.Action;
                      --  Actually multiple lines; we assume the formatting is adequate.
@@ -164,7 +164,6 @@ is
                      Unref_User_Data : Boolean := True;
                      Unref_Tree      : Boolean := True;
                      Unref_Nonterm   : Boolean := True;
-                     Unref_Tokens    : Boolean := True;
                      Need_Comma      : Boolean := False;
 
                      procedure Check_Unref (Line : in String)
@@ -178,21 +177,17 @@ is
                         if Match (Line, Nonterm_Regexp) then
                            Unref_Nonterm := False;
                         end if;
-                        if Match (Line, Tokens_Regexp) then
-                           Unref_Tokens := False;
-                        end if;
                      end Check_Unref;
                   begin
                      Check_Unref (Line);
                      Indent_Line ("procedure " & Name);
                      Indent_Line (" (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;");
                      Indent_Line ("  Tree      : in out WisiToken.Syntax_Trees.Tree;");
-                     Indent_Line ("  Nonterm   : in     WisiToken.Valid_Node_Index;");
-                     Indent_Line ("  Tokens    : in     WisiToken.Valid_Node_Index_Array)");
+                     Indent_Line ("  Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access)");
                      Indent_Line ("is");
 
                      Indent := Indent + 3;
-                     if Unref_User_Data or Unref_Tree or Unref_Nonterm or Unref_Tokens then
+                     if Unref_User_Data or Unref_Tree or Unref_Nonterm then
                         Indent_Start ("pragma Unreferenced (");
 
                         if Unref_User_Data then
@@ -205,10 +200,6 @@ is
                         end if;
                         if Unref_Nonterm then
                            Put ((if Need_Comma then ", " else "") & "Nonterm");
-                           Need_Comma := True;
-                        end if;
-                        if Unref_Tokens then
-                           Put ((if Need_Comma then ", " else "") & "Tokens");
                            Need_Comma := True;
                         end if;
                         Put_Line (");");
@@ -226,31 +217,31 @@ is
                   end;
                end if;
 
-               if Length (RHS.Check) > 0 and then not Is_Elisp (RHS.Check) then
+               if Length (RHS.Check) > 0 then
                   declare
                      use Ada.Strings.Fixed;
                      Line          : constant String  := -RHS.Check;
                      Name          : constant String  := Check_Names (LHS_ID)(RHS_Index).all;
-                     Unref_Lexer   : constant Boolean := 0 = Index (Line, "Lexer");
+                     Unref_Tree    : constant Boolean := 0 = Index (Line, "Tree");
                      Unref_Nonterm : constant Boolean := 0 = Index (Line, "Nonterm");
                      Unref_Tokens  : constant Boolean := 0 = Index (Line, "Tokens");
                      Unref_Recover : constant Boolean := 0 = Index (Line, "Recover_Active");
                      Need_Comma    : Boolean          := False;
                   begin
                      Indent_Line ("function " & Name);
-                     Indent_Line (" (Lexer          : access constant WisiToken.Lexer.Instance'Class;");
-                     Indent_Line ("  Nonterm        : in out WisiToken.Recover_Token;");
-                     Indent_Line ("  Tokens         : in     WisiToken.Recover_Token_Array;");
-                     Indent_Line ("  Recover_Active : in     Boolean)");
-                     Indent_Line (" return WisiToken.Semantic_Checks.Check_Status");
+                     Indent_Line ("  (Tree           : in     WisiToken.Syntax_Trees.Tree;");
+                     Indent_Line ("   Nonterm        : in out WisiToken.Syntax_Trees.Recover_Token;");
+                     Indent_Line ("   Tokens         : in     WisiToken.Syntax_Trees.Recover_Token_Array;");
+                     Indent_Line ("   Recover_Active : in     Boolean)");
+                     Indent_Line ("  return WisiToken.Syntax_Trees.In_Parse_Actions.Status");
                      Indent_Line ("is");
 
                      Indent := Indent + 3;
-                     if Unref_Lexer or Unref_Nonterm or Unref_Tokens or Unref_Recover then
+                     if Unref_Tree or Unref_Nonterm or Unref_Tokens or Unref_Recover then
                         Indent_Start ("pragma Unreferenced (");
 
-                        if Unref_Lexer then
-                           Put ("Lexer");
+                        if Unref_Tree then
+                           Put ("Tree");
                            Need_Comma := True;
                         end if;
                         if Unref_Nonterm then
@@ -313,24 +304,20 @@ is
       Put_Raw_Code (Ada_Comment, Input_Data.Raw_Code (Copyright_License));
       New_Line;
 
-      if (case Common_Data.Generate_Algorithm is
-          when LR_Generate_Algorithm => Input_Data.Action_Count > 0 or Input_Data.Check_Count > 0,
-          when Packrat_Generate_Algorithm | External => Input_Data.Action_Count > 0)
-      then
-         Put_Line ("with " & Actions_Package_Name & "; use " & Actions_Package_Name & ";");
-      end if;
-
       case Common_Data.Lexer is
-      when None | Elisp_Lexer =>
+      when None | Tree_Sitter_Lexer =>
          null;
 
       when re2c_Lexer =>
+         Put_Line ("with SAL;");
          Put_Line ("with WisiToken.Lexer.re2c;");
          Put_Line ("with " & re2c_Package_Name & ";");
       end case;
 
+      Put_Line ("with " & Actions_Package_Name & "; use " & Actions_Package_Name & ";");
+
       case Common_Data.Generate_Algorithm is
-      when LR_Generate_Algorithm =>
+      when LR_Generate_Algorithm | Tree_Sitter =>
          null;
 
       when Packrat_Gen =>
@@ -349,32 +336,32 @@ is
       New_Line;
 
       case Common_Data.Lexer is
-      when None | Elisp_Lexer =>
+      when None | Tree_Sitter_Lexer =>
          null;
 
       when re2c_Lexer =>
-         Indent_Line ("package Lexer is new WisiToken.Lexer.re2c");
-         Indent_Line ("  (" & re2c_Package_Name & ".New_Lexer,");
-         Indent_Line ("   " & re2c_Package_Name & ".Free_Lexer,");
-         Indent_Line ("   " & re2c_Package_Name & ".Reset_Lexer,");
-         Indent_Line ("   " & re2c_Package_Name & ".Next_Token);");
-         New_Line;
+         Create_re2c_Lexer (Generate_Data, Output_File_Name_Root);
       end case;
 
       case Common_Data.Generate_Algorithm is
       when LR_Generate_Algorithm =>
-         LR_Create_Create_Parser (Input_Data, Common_Data, Generate_Data);
+         LR_Create_Create_Parse_Table (Input_Data, Common_Data, Generate_Data, Actions_Package_Name);
+         Create_Create_Productions (Generate_Data);
 
       when Packrat_Gen =>
          WisiToken.BNF.Generate_Packrat (Packrat_Data, Generate_Data);
-
-         Packrat_Create_Create_Parser (Common_Data, Generate_Data, Packrat_Data);
+         Create_Create_Productions (Generate_Data);
+         Packrat_Create_Create_Parser (Actions_Package_Name, Common_Data, Generate_Data, Packrat_Data);
 
       when Packrat_Proc =>
-         Packrat_Create_Create_Parser (Common_Data, Generate_Data, Packrat_Data);
+         Create_Create_Productions (Generate_Data);
+         Packrat_Create_Create_Parser (Actions_Package_Name, Common_Data, Generate_Data, Packrat_Data);
 
       when External =>
          External_Create_Create_Grammar (Generate_Data);
+
+      when Tree_Sitter =>
+         null;
       end case;
 
       Put_Line ("end " & Main_Package_Name & ";");
@@ -382,9 +369,7 @@ is
       Set_Output (Standard_Output);
    end Create_Ada_Main_Body;
 
-   procedure Create_Ada_Test_Main
-     (Actions_Package_Name : in String;
-      Main_Package_Name    : in String)
+   procedure Create_Ada_Test_Main (Main_Package_Name : in String)
    is
       use WisiToken.Generate;
 
@@ -401,10 +386,10 @@ is
                else "Gen_LR_Parser_No_Recover_Run")),
 
          when Packrat_Generate_Algorithm => "Gen_Packrat_Parser_Run",
-         when External => raise SAL.Programmer_Error);
+         when External => raise SAL.Programmer_Error,
+         when Tree_Sitter => "Gen_Tree_Sitter_Parser_Run");
 
-      Unit_Name : constant String := File_Name_To_Ada (Output_File_Name_Root) &
-        "_" & Generate_Algorithm'Image (Common_Data.Generate_Algorithm) & "_Run";
+      Unit_Name : constant String := File_Name_To_Ada (Output_File_Name_Root) & Gen_Alg_Name & "_Run";
 
       Default_Language_Runtime_Package : constant String := "WisiToken.Parse.LR.McKenzie_Recover." & File_Name_To_Ada
         (Output_File_Name_Root);
@@ -418,13 +403,13 @@ is
       Indent := 1;
 
       Put_File_Header (Ada_Comment, Use_Tuple => True, Tuple => Tuple);
-      --  no Copyright_License; just a test file
       New_Line;
 
       Put_Line ("with " & Generic_Package_Name & ";");
-      Put_Line ("with " & Actions_Package_Name & ";");
       Put_Line ("with " & Main_Package_Name & ";");
-      if Input_Data.Language_Params.Error_Recover and
+
+      if Common_Data.Generate_Algorithm in LR_Generate_Algorithm and
+          Input_Data.Language_Params.Error_Recover and
         Input_Data.Language_Params.Use_Language_Runtime
       then
          declare
@@ -440,42 +425,44 @@ is
       end if;
 
       Put_Line ("procedure " & Unit_Name & " is new " & Generic_Package_Name);
-      Put_Line ("  (" & Actions_Package_Name & ".Descriptor,");
-      if Common_Data.Text_Rep then
-         Put_Line ("   """ & Output_File_Name_Root & "_" &
-                     To_Lower (Generate_Algorithm_Image (Tuple.Gen_Alg).all) &
-                     "_parse_table.txt"",");
-      end if;
-      if Input_Data.Language_Params.Error_Recover then
-         if Input_Data.Language_Params.Use_Language_Runtime then
-            Put_Line ("Fixes'Access, Matching_Begin_Tokens'Access, String_ID_Set'Access,");
-         else
-            Put_Line ("null, null, null,");
+      Put_Line ("  (");
+      case Common_Data.Generate_Algorithm is
+      when LR_Generate_Algorithm =>
+         if Common_Data.Text_Rep then
+            Put_Line
+              ("   """ &
+                 Text_Rep_File_Name
+                   (Output_File_Name_Root, Tuple, Generate_Task_Count, Input_Data.If_Lexer_Present, Test_Main) & """,");
          end if;
-      end if;
-      Put_Line (Main_Package_Name & ".Create_Parser);");
+         if Input_Data.Language_Params.Error_Recover then
+            if Input_Data.Language_Params.Use_Language_Runtime then
+               Put_Line ("   Fixes'Access, Matching_Begin_Tokens'Access, String_ID_Set'Access,");
+            else
+               Put_Line ("   null, null, null,");
+            end if;
+         end if;
+         Put_Line ("   " & Main_Package_Name & ".Create_Parse_Table,");
+         Put_Line ("   " & Main_Package_Name & ".Create_Productions,");
+         Put_Line ("   " & Main_Package_Name & ".Create_Lexer);");
+
+      when Packrat_Generate_Algorithm | Tree_Sitter =>
+         Put_Line ("   " & Main_Package_Name & ".Create_Parser);");
+
+      when External =>
+         raise SAL.Programmer_Error;
+      end case;
       Close (File);
       Set_Output (Standard_Output);
    end Create_Ada_Test_Main;
 
 begin
-   case Common_Data.Lexer is
-   when None | re2c_Lexer =>
-      null;
-
-   when Elisp_Lexer =>
-      raise User_Error with WisiToken.Generate.Error_Message
-        (Input_Data.Grammar_Lexer.File_Name, 1, "Ada output language does not support " & Lexer_Image
-           (Common_Data.Lexer).all & " lexer");
-   end case;
-
    case Tuple.Interface_Kind is
    when None  =>
       null;
 
    when Module | Process =>
       raise User_Error with WisiToken.Generate.Error_Message
-        (Input_Data.Grammar_Lexer.File_Name, 1, "Ada output language does not support setting Interface");
+        (Grammar_File_Name, 1, "Ada output language does not support setting Interface");
    end case;
 
    declare
@@ -500,7 +487,7 @@ begin
          Create_Ada_Main_Spec (To_Lower (Main_Package_Name) & ".ads", Main_Package_Name, Input_Data, Common_Data);
 
          if Test_Main then
-            Create_Ada_Test_Main (Actions_Package_Name, Main_Package_Name);
+            Create_Ada_Test_Main (Main_Package_Name);
          end if;
       end if;
    end;

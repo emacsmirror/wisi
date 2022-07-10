@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -19,78 +19,69 @@ pragma License (Modified_GPL);
 
 package body WisiToken.Parse.Packrat.Generated is
 
-   overriding procedure Parse (Parser : aliased in out Generated.Parser)
+   overriding procedure Parse
+     (Parser     : in out Generated.Parser;
+      Log_File   : in     Ada.Text_IO.File_Type;
+      Edits      : in     KMN_Lists.List := KMN_Lists.Empty_List;
+      Pre_Edited : in     Boolean        := False)
    is
-      --  'aliased' required for Base_Tree'Access. WORKAROUND: that was
-      --  enough when Parser type was declared in generated Main; now that
-      --  it's a derived type, it doesn't work. So we use Unchecked_Access.
-
-      Descriptor : WisiToken.Descriptor renames Parser.Trace.Descriptor.all;
-
-      Junk : WisiToken.Valid_Node_Index;
-      pragma Unreferenced (Junk);
+      pragma Unreferenced (Log_File, Pre_Edited);
+      use all type WisiToken.Syntax_Trees.User_Data_Access;
+      use all type Ada.Containers.Count_Type;
+      Descriptor : WisiToken.Descriptor renames Parser.Tree.Lexer.Descriptor.all;
 
       Result : Memo_Entry;
    begin
-      Parser.Base_Tree.Clear;
-      Parser.Tree.Initialize (Parser.Base_Tree'Unchecked_Access, Flush => True);
-      Parser.Lex_All;
+      if Edits.Length > 0 then
+         raise WisiToken.Parse_Error;
+      end if;
+
+      for Deriv of Parser.Derivs loop
+         for Memo of Deriv loop
+            case Memo.State is
+            when No_Result | Failure =>
+               null;
+            when Success =>
+               Memo.Last_Pos := Syntax_Trees.Invalid_Stream_Index;
+            end case;
+         end loop;
+      end loop;
+
       Parser.Derivs.Set_First_Last (Descriptor.First_Nonterminal, Descriptor.Last_Nonterminal);
 
-      for Nonterm in Descriptor.First_Nonterminal .. Parser.Trace.Descriptor.Last_Nonterminal loop
-         Parser.Derivs (Nonterm).Clear;
-         Parser.Derivs (Nonterm).Set_First_Last (Parser.Terminals.First_Index, Parser.Terminals.Last_Index);
+      Parser.Tree.Clear;
+
+      if Parser.User_Data /= null then
+         Parser.User_Data.Reset;
+      end if;
+      Parser.Lex_All; -- Creates Tree.Shared_Stream
+
+      --  WORKAROUND: there appears to be a bug in GNAT Community 2021 that makes
+      --  ref_count fail in this usage. May be related to AdaCore ticket V107-045.
+      Parser.Tree.Enable_Ref_Count_Check (Parser.Tree.Shared_Stream, Enable => False);
+
+      for Nonterm in Descriptor.First_Nonterminal .. Descriptor.Last_Nonterminal loop
+         Parser.Derivs (Nonterm).Clear (Free_Memory => True);
+         Parser.Derivs (Nonterm).Set_First_Last
+           (Parser.Tree.Get_Node_Index
+              (Parser.Tree.Shared_Stream, Parser.Tree.Stream_First (Parser.Tree.Shared_Stream, Skip_SOI => True)),
+            Parser.Tree.Get_Node_Index
+              (Parser.Tree.Shared_Stream, Parser.Tree.Stream_Last (Parser.Tree.Shared_Stream, Skip_EOI => False)));
       end loop;
 
-      for Token_Index in Parser.Terminals.First_Index .. Parser.Terminals.Last_Index loop
-         Junk := Parser.Tree.Add_Terminal (Token_Index, Parser.Terminals);
-         --  FIXME: move this into Lex_All, delete Terminals, just use Syntax_Tree
-      end loop;
-
-      Result := Parser.Parse_WisiToken_Accept (Parser, Parser.Terminals.First_Index - 1);
+      Result := Parser.Parse_WisiToken_Accept
+        (Parser, Parser.Tree.Stream_First (Parser.Tree.Shared_Stream, Skip_SOI => False));
 
       if Result.State /= Success then
          if Trace_Parse > Outline then
-            Parser.Trace.Put_Line ("parse failed");
+            Parser.Tree.Lexer.Trace.Put_Line ("parse failed");
          end if;
 
-         raise Syntax_Error with "parse failed"; --  FIXME: need better error message!
+         raise Syntax_Error with "parse failed"; --  FIXME packrat: need better error message!
       else
          Parser.Tree.Set_Root (Result.Result);
       end if;
 
    end Parse;
-
-   overriding function Tree (Parser : in Generated.Parser) return Syntax_Trees.Tree
-   is begin
-      return Parser.Tree;
-   end Tree;
-
-   overriding function Tree_Var_Ref
-     (Parser : aliased in out Generated.Parser)
-     return Syntax_Trees.Tree_Variable_Reference
-   is begin
-      return (Element => Parser.Tree'Access);
-   end Tree_Var_Ref;
-
-   overriding function Any_Errors (Parser : in Generated.Parser) return Boolean
-   is
-      use all type Ada.Containers.Count_Type;
-   begin
-      return Parser.Lexer.Errors.Length > 0;
-   end Any_Errors;
-
-   overriding procedure Put_Errors (Parser : in Generated.Parser)
-   is
-      use Ada.Text_IO;
-   begin
-      for Item of Parser.Lexer.Errors loop
-         Put_Line
-           (Current_Error,
-            Parser.Lexer.File_Name & ":0:0: lexer unrecognized character at" & Buffer_Pos'Image (Item.Char_Pos));
-      end loop;
-
-      --  FIXME: Packrat parser does not report errors yet.
-   end Put_Errors;
 
 end WisiToken.Parse.Packrat.Generated;

@@ -1,6 +1,6 @@
 ;;; wisi-fringe.el --- show approximate error locations in the fringe
 ;;
-;; Copyright (C) 2018 - 2019  Free Software Foundation, Inc.
+;; Copyright (C) 2018 - 2019, 2021 - 2022  Free Software Foundation, Inc.
 ;;
 ;; This file is part of GNU Emacs.
 ;;
@@ -120,33 +120,34 @@ in the window."
   (remove-overlays (point-min) (point-max) 'wisi-fringe t))
 
 (defun wisi-fringe-display-errors (positions)
-  "Display markers in the left and right fringe for each buffer position in POSITIONS.
+  "Display markers in the fringe for each buffer position in POSITIONS.
 The buffer containing POSITIONS must be current, and the window
 displaying that buffer must be current."
   ;; We don't recompute fringe display on scroll, because the user
   ;; will probably have edited the code by then, triggering a new
   ;; parse.
   (wisi-fringe-clean)
-  (let (scaled-posns
-	(buffer-lines (line-number-at-pos (point-max)))
-	(window-lines (window-height))
-	(window-pos-first (window-start))
-	(window-pos-last  (window-end))
-	(window-line-first (line-number-at-pos (window-start))))
-    (dolist (pos positions)
-      (let* ((line (line-number-at-pos pos))
-	     (scaled-pos (wisi-fringe--scale line buffer-lines window-line-first window-lines)))
-	(when (and (>= pos window-pos-first)
-		   (<= pos window-pos-last))
-	  (wisi-fringe--put-left line))
-	(if (and scaled-posns
-		 (= (caar scaled-posns) (car scaled-pos)))
-	    (setcdr (car scaled-posns) (logior (cdar scaled-posns) (cdr scaled-pos)))
-	  (push scaled-pos scaled-posns))
-	))
+  (when positions
+    (let (scaled-posns
+	  (buffer-lines (line-number-at-pos (point-max) t))
+	  (window-lines (window-height))
+	  (window-pos-first (window-start))
+	  (window-pos-last  (window-end))
+	  (window-line-first (line-number-at-pos (window-start) t)))
+      (dolist (pos positions)
+	(let* ((line (line-number-at-pos (max (point-min) (min (point-max) pos)) t))
+	       (scaled-pos (wisi-fringe--scale line buffer-lines window-line-first window-lines)))
+	  (when (and (>= pos window-pos-first)
+		     (<= pos window-pos-last))
+	    (wisi-fringe--put-left line))
+	  (if (and scaled-posns
+		   (= (caar scaled-posns) (car scaled-pos)))
+	      (setcdr (car scaled-posns) (logior (cdar scaled-posns) (cdr scaled-pos)))
+	    (push scaled-pos scaled-posns))
+	  ))
 
-    (dolist (pos scaled-posns)
-      (wisi-fringe--put-right (car pos) (1- (cdr pos))))
-    ))
+      (dolist (pos scaled-posns)
+	(wisi-fringe--put-right (car pos) (1- (cdr pos))))
+      )))
 
 (provide 'wisi-fringe)

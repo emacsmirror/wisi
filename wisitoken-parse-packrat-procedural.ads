@@ -9,7 +9,7 @@
 --
 --  See parent.
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -43,18 +43,22 @@ package WisiToken.Parse.Packrat.Procedural is
          null;
 
       when Success =>
-         Result   : WisiToken.Valid_Node_Index;
-         Last_Pos : Base_Token_Index;
+         Result   : Syntax_Trees.Node_Access;
+         Last_Pos : Syntax_Trees.Stream_Index;
 
       end case;
    end record;
 
+   subtype Positive_Node_Index is Syntax_Trees.Node_Index range 1 .. Syntax_Trees.Node_Index'Last;
    package Memos is new SAL.Gen_Unbounded_Definite_Vectors
-     (Token_Index, Memo_Entry, Default_Element => (others => <>));
+     (Positive_Node_Index, Memo_Entry, Default_Element => (others => <>));
+   --  Memos is indexed by Node_Index of terminals in Shared_Stream
+   --  (incremental parse is not supported).
+
    type Derivs is array (Token_ID range <>) of Memos.Vector;
 
-   type Parser (First_Nonterminal, Last_Nonterminal : Token_ID) is new Packrat.Parser with
-   record
+   type Parser (First_Nonterminal, Last_Nonterminal : Token_ID) is new Packrat.Parser
+   with record
       Grammar               : WisiToken.Productions.Prod_Arrays.Vector;
       Start_ID              : Token_ID;
       Direct_Left_Recursive : Token_ID_Set (First_Nonterminal .. Last_Nonterminal);
@@ -62,25 +66,19 @@ package WisiToken.Parse.Packrat.Procedural is
    end record;
 
    function Create
-     (Grammar               : in     WisiToken.Productions.Prod_Arrays.Vector;
-      Direct_Left_Recursive : in     Token_ID_Set;
-      Start_ID              : in     Token_ID;
-      Trace                 : access WisiToken.Trace'Class;
-      Lexer                 :        WisiToken.Lexer.Handle;
-      User_Data             :        WisiToken.Syntax_Trees.User_Data_Access)
+     (Grammar               : in WisiToken.Productions.Prod_Arrays.Vector;
+      Direct_Left_Recursive : in Token_ID_Set;
+      Start_ID              : in Token_ID;
+      Lexer                 : in WisiToken.Lexer.Handle;
+      Productions           : in WisiToken.Syntax_Trees.Production_Info_Trees.Vector;
+      User_Data             : in WisiToken.Syntax_Trees.User_Data_Access)
      return Procedural.Parser;
 
-   overriding procedure Parse (Parser : aliased in out Procedural.Parser);
-   overriding function Tree (Parser : in Procedural.Parser) return Syntax_Trees.Tree;
-   overriding function Tree_Var_Ref
-     (Parser : aliased in out Procedural.Parser)
-     return Syntax_Trees.Tree_Variable_Reference;
-
-   overriding function Any_Errors (Parser : in Procedural.Parser) return Boolean
-     is (False);
-   --  All errors are reported by Parse raising Syntax_Error.
-
-   overriding procedure Put_Errors (Parser : in Procedural.Parser)
-   is null;
+   overriding procedure Parse
+     (Parser     : in out Procedural.Parser;
+      Log_File   : in     Ada.Text_IO.File_Type;
+      Edits      : in     KMN_Lists.List := KMN_Lists.Empty_List;
+      Pre_Edited : in     Boolean        := False);
+   --  Raises Parse_Error if Edits is not empty.
 
 end WisiToken.Parse.Packrat.Procedural;

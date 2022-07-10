@@ -2,7 +2,7 @@
 --
 --  Types and operatorion for LR(1) items.
 --
---  Copyright (C) 2003, 2008, 2013 - 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2003, 2008, 2013 - 2015, 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -29,14 +29,16 @@ pragma License (Modified_GPL);
 
 with Interfaces;
 with SAL.Gen_Definite_Doubly_Linked_Lists_Sorted;
+with SAL.Gen_Unbounded_Definite_Hash_Tables;
 with SAL.Gen_Unbounded_Definite_Red_Black_Trees;
 with SAL.Gen_Unbounded_Definite_Vectors.Gen_Comparable;
 with WisiToken.Productions;
 package WisiToken.Generate.LR1_Items is
+   use all type Interfaces.Unsigned_16;
 
-   use all type Interfaces.Integer_16;
-
-   subtype Lookahead is Token_ID_Set;
+   subtype Lookahead_Index_Type is Token_ID range 0 .. 127;
+   type Lookahead is array (Lookahead_Index_Type) of Boolean with Pack;
+   for Lookahead'Size use 128;
    --  Picking a type for Lookahead is not straight-forward. The
    --  operations required are (called numbers are for LR1 generate
    --  ada_lite):
@@ -74,16 +76,15 @@ package WisiToken.Generate.LR1_Items is
    --
    --  We've tried:
    --
-   --  (1) Token_ID_Set (unconstrained array of boolean, allocated directly) - fastest
+   --  (1) Token_ID_Set (unconstrained array of boolean, allocated directly) - slower than (4)
    --
-   --     Allocates more memory than (2), but everything else is fast,
-   --     and it's not enough memory to matter.
+   --      Allocates more memory than (2), but everything else is fast,
+   --      and it's not enough memory to matter.
    --
-   --     Loop over lookaheads is awkward:
-   --     for tok_id in lookaheads'range loop
+   --      Loop over lookaheads is awkward:
+   --      for tok_id in lookaheads'range loop
    --        if lookaheads (tok_id) then
    --           ...
-   --     But apparently it's fast enough.
    --
    --  (2) Instantiation of SAL.Gen_Unbounded_Definite_Vectors (token_id_arrays) - slower than (1).
    --
@@ -92,23 +93,22 @@ package WisiToken.Generate.LR1_Items is
    --      does sort and insert internally. Insert is inherently slow.
    --
    --  (3) Instantiation of SAL.Gen_Definite_Doubly_Linked_Lists_Sorted - slower than (2)
+   --
+   --  (4) Fixed length constrained array of Boolean, packed to 128 bits - fastest
+   --      Big enough for Ada, Java, Python. Fastest because in large
+   --      grammars the time is dominated by Include, and GNAT optimizes it
+   --      to use register compare of 64 bits at a time.
+
+   Null_Lookahead : constant Lookahead := (others => False);
 
    type Item is record
       Prod       : Production_ID;
-      Dot        : Token_ID_Arrays.Extended_Index := Token_ID_Arrays.No_Index; -- token after item Dot
-      Lookaheads : Token_ID_Set_Access := null;
-      --  Programmer must remember to copy Item.Lookaheads.all, not
-      --  Item.Lookaheads. Wrapping this in Ada.Finalization.Controlled
-      --  would just slow it down.
-      --
-      --  We don't free Lookaheads; we assume the user is running
-      --  wisi-generate, and not keeping LR1_Items around.
+      Dot        : Token_ID_Arrays.Extended_Index := Token_ID_Arrays.No_Index;
+      --  Token after item Dot. If after last token, value is No_Index.
+      Lookaheads : Lookahead                      := (others => False);
    end record;
 
-   function To_Lookahead (Item : in Token_ID; Descriptor : in WisiToken.Descriptor) return Lookahead;
-
-   function Contains (Item : in Lookahead; ID : in Token_ID) return Boolean
-     is (Item (ID));
+   function To_Lookahead (Item : in Token_ID) return Lookahead;
 
    function Lookahead_Image (Item : in Lookahead; Descriptor : in WisiToken.Descriptor) return String;
    --  Returns the format used in parse table output.
@@ -133,7 +133,7 @@ package WisiToken.Generate.LR1_Items is
      (Item  : in out LR1_Items.Item;
       Value : in     Lookahead;
       Added :    out Boolean);
-   --  Add Value to Item.Lookahead, if not already present.
+   --  Add Value to Item.Lookahead.
    --
    --  Added is True if Value was not already present.
    --
@@ -142,38 +142,78 @@ package WisiToken.Generate.LR1_Items is
    procedure Include
      (Item       : in out LR1_Items.Item;
       Value      : in     Lookahead;
+      Added      :    out Boolean;
       Descriptor : in     WisiToken.Descriptor);
-   --  Add Value to Item.Lookahead. Does not check if already present.
-   --  Excludes Propagate_ID.
+   --  Add Value to Item.Lookahead, excluding Propagate_ID.
 
    procedure Include
      (Item       : in out LR1_Items.Item;
       Value      : in     Lookahead;
-      Added      :    out Boolean;
       Descriptor : in     WisiToken.Descriptor);
-   --  Add Value to Item.Lookahead.
+   --  Add Value to Item.Lookahead, excluding Propagate_ID.
 
    type Goto_Item is record
-      Symbol : Token_ID;
+      Symbol : Token_ID := Invalid_Token_ID;
       --  If Symbol is a terminal, this is a shift and goto state action.
       --  If Symbol is a non-terminal, this is a post-reduce goto state action.
-      State  : State_Index;
+      State  : State_Index := State_Index'Last;
    end record;
 
-   function Goto_Item_Compare (Left, Right : in Goto_Item) return SAL.Compare_Result is
-     (if Left.Symbol > Right.Symbol then SAL.Greater
-      elsif Left.Symbol < Right.Symbol then SAL.Less
+   function Symbol (Item : in Goto_Item) return Token_ID is (Item.Symbol);
+   function Token_ID_Compare (Left, Right : in Token_ID) return SAL.Compare_Result is
+     (if Left > Right then SAL.Greater
+      elsif Left < Right then SAL.Less
       else SAL.Equal);
    --  Sort Goto_Item_Lists in ascending order of Symbol.
 
-   package Goto_Item_Lists is new SAL.Gen_Definite_Doubly_Linked_Lists_Sorted
-     (Goto_Item, Goto_Item_Compare);
+   package Goto_Item_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
+     (Positive_Index_Type, Goto_Item, (Token_ID'Last, State_Index'Last));
+   --  For temporary lists
+
+   package Goto_Item_Lists is new SAL.Gen_Unbounded_Definite_Red_Black_Trees
+     (Element_Type => Goto_Item,
+      Key_Type     => Token_ID,
+      Key          => Symbol,
+      Key_Compare  => Token_ID_Compare);
+   subtype Goto_Item_List is Goto_Item_Lists.Tree;
+   --  Goto_Item_Lists don't get very long, so red_black_trees is only
+   --  barely faster than doubly_linked_lists_sorted.
+
+   function Get_Dot_IDs
+     (Grammar    : in WisiToken.Productions.Prod_Arrays.Vector;
+      Set        : in Item_Lists.List;
+      Descriptor : in WisiToken.Descriptor)
+     return Token_ID_Arrays.Vector;
+
+   package Unsigned_16_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
+     (Positive, Interfaces.Unsigned_16, Default_Element => Interfaces.Unsigned_16'Last);
+   function Compare_Unsigned_16 (Left, Right : in Interfaces.Unsigned_16) return SAL.Compare_Result is
+     (if Left > Right then SAL.Greater
+      elsif Left < Right then SAL.Less
+      else SAL.Equal);
+
+   package Unsigned_16_Arrays_Comparable is new Unsigned_16_Arrays.Gen_Comparable (Compare_Unsigned_16);
+
+   subtype Item_Set_Tree_Key is Unsigned_16_Arrays_Comparable.Vector;
+   --  We want a key that is fast to compare, and has enough info to
+   --  significantly speed the search for an item set. So we convert all
+   --  relevant data in an item into a string of integers. We need 16 bit
+   --  because Ada token_ids max is 332. LR1 keys include lookaheads,
+   --  LALR keys do not.
+
+   Empty_Key : Item_Set_Tree_Key renames Unsigned_16_Arrays_Comparable.Empty_Vector;
+
+   type Item_Set_Tree_Node is record
+      Key   : Item_Set_Tree_Key   := Unsigned_16_Arrays_Comparable.Empty_Vector;
+      Hash  : Positive            := 1;
+      State : Unknown_State_Index := Unknown_State;
+   end record;
 
    type Item_Set is record
       Set       : Item_Lists.List;
-      Goto_List : Goto_Item_Lists.List;
+      Goto_List : Goto_Item_List;
       Dot_IDs   : Token_ID_Arrays.Vector;
-      State     : Unknown_State_Index := Unknown_State;
+      Tree_Node : Item_Set_Tree_Node; --  Avoids building an aggregate to insert in the tree.
    end record;
 
    function Filter
@@ -215,68 +255,50 @@ package WisiToken.Generate.LR1_Items is
    package Item_Set_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
      (State_Index, Item_Set, Default_Element => (others => <>));
    subtype Item_Set_List is Item_Set_Arrays.Vector;
+   --  Item_Set_Arrays.Vector holds state item sets indexed by state, for
+   --  iterating in state order. See also Item_Set_Trees.
 
-   package Int_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
-     (Positive, Interfaces.Integer_16, Default_Element => Interfaces.Integer_16'Last);
-   function Compare_Integer_16 (Left, Right : in Interfaces.Integer_16) return SAL.Compare_Result is
-     (if Left > Right then SAL.Greater
-      elsif Left < Right then SAL.Less
-      else SAL.Equal);
+   function Hash_Sum_32 (Key : in Item_Set_Tree_Key; Rows : in Positive) return Positive
+   with Post => Hash_Sum_32'Result <= Rows;
 
-   package Int_Arrays_Comparable is new Int_Arrays.Gen_Comparable (Compare_Integer_16);
+   procedure Compute_Key_Hash
+     (Item_Set           : in out LR1_Items.Item_Set;
+      Rows               : in     Positive;
+      Grammar            : in     WisiToken.Productions.Prod_Arrays.Vector;
+      Descriptor         : in     WisiToken.Descriptor;
+      Include_Lookaheads : in     Boolean);
 
-   subtype Item_Set_Tree_Key is Int_Arrays_Comparable.Vector;
-   --  We want a key that is fast to compare, and has enough info to
-   --  significantly speed the search for an item set. So we convert all
-   --  relevant data in an item into a string of integers. We need 16 bit
-   --  because Ada token_ids max is 332. LR1 keys include lookaheads,
-   --  LALR keys do not.
+   function To_Item_Set_Tree_Key (Node : in Item_Set_Tree_Node) return Item_Set_Tree_Key
+   is (Node.Key);
 
-   type Item_Set_Tree_Node is record
-      Key   : Item_Set_Tree_Key;
-      State : Unknown_State_Index;
-   end record;
+   function To_Item_Set_Tree_Hash (Node : in Item_Set_Tree_Node; Rows : in Positive) return Positive;
 
-   function To_Item_Set_Tree_Key
-     (Item_Set           : in LR1_Items.Item_Set;
-      Include_Lookaheads : in Boolean)
-     return Item_Set_Tree_Key;
-
-   function To_Item_Set_Tree_Key (Node : in Item_Set_Tree_Node) return Item_Set_Tree_Key is
-     (Node.Key);
-
-   package Item_Set_Trees is new SAL.Gen_Unbounded_Definite_Red_Black_Trees
+   package Item_Set_Trees is new SAL.Gen_Unbounded_Definite_Hash_Tables
      (Element_Type => Item_Set_Tree_Node,
       Key_Type     => Item_Set_Tree_Key,
       Key          => To_Item_Set_Tree_Key,
-      Key_Compare  => Int_Arrays_Comparable.Compare);
-   --  Item_Set_Arrays.Vector holds state item sets indexed by state, for
-   --  iterating in state order. Item_Set_Trees.Tree holds lists of state
-   --  indices sorted by LR1 item info, for fast Find in LR1_Item_Sets
-   --  and LALR_Kernels.
+      Key_Compare  => Unsigned_16_Arrays_Comparable.Compare,
+      Hash         => To_Item_Set_Tree_Hash);
+   --  Item_Set_Trees holds state indices sorted by Item_Set_Tree_Key,
+   --  for fast Find in LR1_Item_Sets and LALR_Kernels. See also
+   --  Item_Set_Arrays.
 
-   function Find
-     (New_Item_Set     : in Item_Set;
-      Item_Set_Tree    : in Item_Set_Trees.Tree;
-      Match_Lookaheads : in Boolean)
-     return Unknown_State_Index;
-   --  Return the State of an element in Item_Set_Tree matching
-   --  New_Item_Set, Unknown_State if not found.
-   --
-   --  Match_Lookaheads is True in LR1_Generate.
+   subtype Item_Set_Tree is Item_Set_Trees.Hash_Table;
 
    procedure Add
      (Grammar            : in     WisiToken.Productions.Prod_Arrays.Vector;
-      New_Item_Set       : in     Item_Set;
-      Item_Set_Vector    : in out Item_Set_List;
-      Item_Set_Tree      : in out Item_Set_Trees.Tree;
+      New_Item_Set       : in out Item_Set;
+      Item_Set_List      : in out LR1_Items.Item_Set_List;
+      Item_Set_Tree      : in out LR1_Items.Item_Set_Tree;
       Descriptor         : in     WisiToken.Descriptor;
-      Include_Lookaheads : in     Boolean);
+      Hash_Table_Rows    : in     Positive;
+      Include_Lookaheads : in     Boolean)
+   with Pre => New_Item_Set.Tree_Node.State = Item_Set_List.Last_Index + 1;
    --  Set New_Item_Set.Dot_IDs, add New_Item_Set to Item_Set_Vector, Item_Set_Tree
 
    function Is_In
      (Item      : in Goto_Item;
-      Goto_List : in Goto_Item_Lists.List)
+      Goto_List : in Goto_Item_List)
      return Boolean;
    --  Return True if a goto on Symbol to State is found in Goto_List
 
@@ -324,7 +346,7 @@ package WisiToken.Generate.LR1_Items is
 
    procedure Put
      (Descriptor : in WisiToken.Descriptor;
-      List       : in Goto_Item_Lists.List);
+      List       : in Goto_Item_List);
    procedure Put
      (Grammar         : in WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor      : in WisiToken.Descriptor;

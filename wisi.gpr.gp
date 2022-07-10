@@ -3,7 +3,7 @@
 --  Make installed and source ELPA package wisi Ada code available for
 --  other projects.
 --
---  Copyright (C) 2017, 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2017, 2019, 2021 Free Software Foundation, Inc.
 --
 --  This program is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -20,8 +20,9 @@
 with "gnatcoll";
 with "standard_common";
 #if ELPA="no"
-with "sal";
-with "wisitoken";
+with "aunit_ext";
+with "sal_devel";
+with "wisitoken_devel";
 #end if;
 project Wisi is
 
@@ -37,7 +38,12 @@ project Wisi is
       for Exec_Dir use ".";
    end case;
 
-   for Languages use ("Ada", "C"); -- C needed for wisitoken-bnf-generate; wisitoken_grammar_re2c.c
+   for Languages use
+   ("Ada"
+#if ELPA="yes" 
+   ,"C" -- C needed for wisitoken_grammar_re2c.c
+#end if;
+   );
 
    package Compiler is
 
@@ -46,17 +52,19 @@ project Wisi is
          for Default_Switches ("Ada") use
            Standard_Common.Compiler.Common_Switches &
            Standard_Common.Compiler.Style_Checks &
-           Standard_Common.Compiler.Debug_Switches & "-gnat2020";
-
+           Standard_Common.Compiler.Debug_Switches;
+#if ELPA="yes" 
          for Default_Switches ("C") use Standard_Common.Compiler.Debug_Switches_C;
+#end if;
 
       when "Normal" =>
          for Default_Switches ("Ada") use
            Standard_Common.Compiler.Common_Switches &
            Standard_Common.Compiler.Style_Checks &
-           Standard_Common.Compiler.Release_Switches & "-gnat2020";
-
+           Standard_Common.Compiler.Release_Switches;
+#if ELPA="yes" 
          for Default_Switches ("C") use Standard_Common.Compiler.Release_Switches_C;
+#end if;
       end case;
 
    end Compiler;

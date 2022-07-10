@@ -3,7 +3,7 @@
 --  Utilities for translating input file structures to WisiToken
 --  structures needed for LALR.Generate.
 --
---  Copyright (C) 2014, 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2014, 2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  The WisiToken package is free software; you can redistribute it
 --  and/or modify it under terms of the GNU General Public License as
@@ -22,14 +22,17 @@ pragma License (Modified_GPL);
 with Ada.Iterator_Interfaces;
 with WisiToken.Generate.LR;
 with WisiToken.Parse.LR;
+with WisiToken.Parse.LR.Parser_No_Recover;
 with WisiToken.Productions;
 with WisiToken_Grammar_Runtime;
 package WisiToken.BNF.Generate_Utils is
 
    EOI_Name : constant String := "Wisi_EOI";
-   --  EOI_Name is used for Descriptor.EOI_ID token; it must match Emacs ada-mode
-   --  wisi.el wisi-eoi-term. It must be a valid Ada identifier when
-   --  "_ID" is appended.
+   --  EOI_Name is used for Descriptor.EOI_ID token. It must be a valid
+   --  Ada identifier when "_ID" is appended.
+
+   SOI_Name : constant String := "Wisi_SOI";
+   --  Similar to EOI_Name
 
    WisiToken_Accept_Name : constant String := "wisitoken_accept";
 
@@ -49,27 +52,43 @@ package WisiToken.BNF.Generate_Utils is
       --  splitting them out.
 
       Ignore_Conflicts   : Boolean                       := False;
-      Conflicts          : WisiToken.Generate.LR.Conflict_Lists.List;
+      Conflicts          : WisiToken.Generate.LR.Conflict_Lists.Tree;
       LR_Parse_Table     : WisiToken.Parse.LR.Parse_Table_Ptr;
       Parser_State_Count : WisiToken.Unknown_State_Index := 0;
    end record;
 
    function Initialize
-     (Input_Data       : aliased in WisiToken_Grammar_Runtime.User_Data_Type;
-      Ignore_Conflicts :         in Boolean := False)
+     (Input_Data        : in WisiToken_Grammar_Runtime.User_Data_Access;
+      Grammar_File_Name : in String;
+      Ignore_Conflicts  : in Boolean := False)
      return Generate_Data;
 
-   function Find_Token_ID (Data : aliased in Generate_Data; Token : in String) return Token_ID;
+   procedure Parse_Grammar_File
+     (Grammar_Parser    : in out WisiToken.Parse.LR.Parser_No_Recover.Parser;
+      Grammar_File_Name : in     String);
 
-   type Token_Container (Data : not null access constant Generate_Data) is tagged null record
+   function Parse_Grammar_File
+     (Grammar_File_Name  : in     String;
+      Input_Data         : in     WisiToken_Grammar_Runtime.User_Data_Access;
+      Generate_Algorithm : in     WisiToken.BNF.Generate_Algorithm;
+      Lexer              : in     WisiToken.BNF.Lexer_Type;
+      Trace              : in out WisiToken.Trace'Class;
+      Ignore_Conflicts   : in     Boolean)
+     return Generate_Data;
+
+   type Token_Container
+     (Tokens     : not null access constant WisiToken.BNF.Tokens;
+      Descriptor : WisiToken.Descriptor_Access_Constant)
+     is tagged null record
    with
      Constant_Indexing => Constant_Reference,
      Default_Iterator  => Iterate,
      Iterator_Element  => Ada.Strings.Unbounded.Unbounded_String;
-   --  We need a container type to define an iterator; the actual data is
-   --  in Data.Tokens. The Iterator_Element is given by Token_Name below.
+   --  The Iterator_Element is given by Token_Name below.
 
    function All_Tokens (Data : aliased in Generate_Data) return Token_Container;
+
+   function Find_Token_ID (Data : in Generate_Data; Token : in String) return Token_ID;
 
    type Token_Constant_Reference_Type
      (Element : not null access constant Ada.Strings.Unbounded.Unbounded_String)
@@ -85,6 +104,7 @@ package WisiToken.BNF.Generate_Utils is
    --  4. EOI
    --  5. Accept
    --  6. Nonterminals
+   --  7. SOI
    --
    --  Within each group, tokens occur in the order they were declared in
    --  the grammar file.
@@ -98,50 +118,49 @@ package WisiToken.BNF.Generate_Utils is
    function Has_Element (Cursor : in Token_Cursor) return Boolean is (not Is_Done (Cursor));
    package Iterator_Interfaces is new Ada.Iterator_Interfaces (Token_Cursor, Has_Element);
    function Iterate
-     (Container    : aliased    Token_Container;
+     (Container    : aliased in Token_Container;
       Non_Grammar  :         in Boolean := True;
-      Nonterminals :         in Boolean := True)
+      Nonterminals :         in Boolean := True;
+      Include_SOI  :         in Boolean := True)
      return Iterator_Interfaces.Forward_Iterator'Class;
 
    function First
-     (Data         : aliased in Generate_Data;
-      Non_Grammar  :         in Boolean;
-      Nonterminals :         in Boolean)
+     (Data         : in Generate_Data;
+      Non_Grammar  : in Boolean := True;
+      Nonterminals : in Boolean := True)
      return Token_Cursor;
-   procedure Next (Cursor : in out Token_Cursor; Nonterminals : in Boolean);
+
+   procedure Next
+     (Data         : in     Generate_Data;
+      Cursor       : in out Token_Cursor;
+      Nonterminals : in     Boolean := True;
+      Include_SOI  : in     Boolean := True);
 
    function ID (Cursor : in Token_Cursor) return Token_ID;
 
-   function Name (Cursor : in Token_Cursor) return String;
+   function Name (Data : in Generate_Data; Cursor : in Token_Cursor) return String;
    --  Return the token name from the .wy file:
    --  Keywords: Keywords (i).name
    --  Tokens  : Tokens (i).Tokens (j).name
    --  Rules   : Rules (i).Left_Hand_Side
 
-   function Kind (Cursor : in Token_Cursor) return String;
+   function Kind (Data : in Generate_Data; Cursor : in Token_Cursor) return String;
    --  Return the token kind from the .wy file:
    --  Keywords: "keyword"
    --  Tokens  : Tokens (i).Kind
    --  Rules   : "nonterminal"
 
-   function Value (Cursor : in Token_Cursor) return String;
+   function Value (Data : in Generate_Data; Cursor : in Token_Cursor) return String;
    --  Return the token value from the .wy file:
    --  Keywords: Keywords (i).value
    --  Tokens  : Tokens (i).Tokens (j).Value
    --  Rules   : empty string (they have no Value)
 
-   function Repair_Image (Cursor : in Token_Cursor) return String;
+   function Repair_Image (Data : in Generate_Data; Cursor : in Token_Cursor) return String;
    --  Return the token repair image from the .wy file:
    --  Keywords: empty string
    --  Tokens  : Tokens (i).Tokens (j).Repair_Image
    --  Rules   : empty string
-
-   function To_Conflicts
-     (Data             : aliased in out Generate_Data;
-      Conflicts        :         in     WisiToken.BNF.Conflict_Lists.List;
-      Source_File_Name :         in     String)
-     return WisiToken.Generate.LR.Conflict_Lists.List;
-   --  Not included in Initialize because algorithms have no conflicts.
 
    function To_Nonterminal_ID_Set
      (Data : aliased in Generate_Data;
@@ -160,9 +179,9 @@ package WisiToken.BNF.Generate_Utils is
 private
 
    type Token_Cursor_Kind is
-     (Non_Grammar_Kind, Terminals_Keywords, Terminals_Others, EOI, WisiToken_Accept, Nonterminal, Done);
+     (Non_Grammar_Kind, Terminals_Keywords, Terminals_Others, EOI, WisiToken_Accept, Nonterminal, SOI, Done);
 
-   type Token_Cursor (Data : not null access constant Generate_Data) is record
+   type Token_Cursor is record
       Kind        : Token_Cursor_Kind;
       ID          : Token_ID;
       Token_Kind  : WisiToken.BNF.Token_Lists.Cursor; -- Non_Grammar or Tokens, depending on Kind

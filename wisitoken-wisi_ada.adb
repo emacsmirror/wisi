@@ -2,7 +2,7 @@
 --
 --  see spec
 --
---  Copyright (C) 2013, 2014, 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2013, 2014, 2015, 2017 - 2020, 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -45,19 +45,19 @@ package body WisiToken.Wisi_Ada is
       end return;
    end "&";
 
-   function "+" (Tokens : in Token_ID_Arrays.Vector; Action : in Syntax_Trees.Semantic_Action) return Right_Hand_Side
+   function "+" (Tokens : in Token_ID_Arrays.Vector; Action : in Syntax_Trees.Post_Parse_Action) return Right_Hand_Side
    is begin
-      return (Tokens, Recursion => <>, Action => Action, Check => null);
+      return (Tokens, Recursion => <>, Post_Parse_Action => Action, In_Parse_Action => null);
    end "+";
 
-   function "+" (Tokens : in Token_ID; Action : in Syntax_Trees.Semantic_Action) return Right_Hand_Side
+   function "+" (Tokens : in Token_ID; Action : in Syntax_Trees.Post_Parse_Action) return Right_Hand_Side
    is begin
-      return (Only (Tokens), Recursion => <>, Action => Action, Check => null);
+      return (Only (Tokens), Recursion => <>, Post_Parse_Action => Action, In_Parse_Action => null);
    end "+";
 
-   function "+" (Action : in Syntax_Trees.Semantic_Action) return Right_Hand_Side
+   function "+" (Action : in Syntax_Trees.Post_Parse_Action) return Right_Hand_Side
    is begin
-      return (Tokens => <>, Recursion => <>, Action => Action, Check => null);
+      return (Tokens => <>, Recursion => <>, Post_Parse_Action => Action, In_Parse_Action => null);
    end "+";
 
    function Only (Item : in WisiToken.Productions.Right_Hand_Side) return WisiToken.Productions.RHS_Arrays.Vector
@@ -79,7 +79,7 @@ package body WisiToken.Wisi_Ada is
 
    function "<=" (LHS : in Token_ID; RHSs : in WisiToken.Productions.RHS_Arrays.Vector) return Instance
    is begin
-      return (LHS, RHSs);
+      return (LHS, Optimized_List => False, RHSs => RHSs);
    end "<=";
 
    function Only (Subject : in Instance) return Prod_Arrays.Vector
@@ -119,11 +119,7 @@ package body WisiToken.Wisi_Ada is
    function "and" (Left : in Prod_Arrays.Vector; Right : in Instance) return Prod_Arrays.Vector
    is begin
       return Result : Prod_Arrays.Vector := Left do
-         if Right.LHS < Result.First_Index then
-            Result.Set_First_Last (Right.LHS, Result.Last_Index);
-         elsif Right.LHS > Result.Last_Index then
-            Result.Set_First_Last (Result.First_Index, Right.LHS);
-         end if;
+         Result.Extend (Right.LHS);
 
          if Result (Right.LHS).LHS = Invalid_Token_ID then
             Result (Right.LHS) := Right;
@@ -136,16 +132,8 @@ package body WisiToken.Wisi_Ada is
    function "and" (Left : in Prod_Arrays.Vector; Right : in Prod_Arrays.Vector) return Prod_Arrays.Vector
    is begin
       return Result : Prod_Arrays.Vector := Left do
-         if Right.First_Index < Result.First_Index then
-            Result.Set_First_Last (Right.First_Index, Result.Last_Index);
-         elsif Right.First_Index > Result.Last_Index then
-            Result.Set_First_Last (Result.First_Index, Right.First_Index);
-         end if;
-         if Right.Last_Index < Result.First_Index then
-            Result.Set_First_Last (Right.Last_Index, Result.Last_Index);
-         elsif Right.Last_Index > Result.Last_Index then
-            Result.Set_First_Last (Result.First_Index, Right.Last_Index);
-         end if;
+         Result.Extend (Right.First_Index);
+         Result.Extend (Right.Last_Index);
 
          for P of Right loop
             if Result (P.LHS).LHS = Invalid_Token_ID then

@@ -5,15 +5,12 @@
 --  The input file syntax is based on BNF syntax [1] with declarations
 --  and grammar actions.
 --
---  The Elisp and Ada_Emacs output languages are for use with the
---  Emacs wisi package.
---
 --  Reference :
 --
 --  [1] https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form
 --  [2] http://www.nongnu.org/ada-mode/wisi/wisi-user_guide.html, (info "(wisi-user_guide)Top")
 --
---  Copyright (C) 2012 - 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2012 - 2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  The WisiToken package is free software; you can redistribute it
 --  and/or modify it under terms of the GNU General Public License as
@@ -34,20 +31,25 @@ with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers.Indefinite_Doubly_Linked_Lists;
 with Ada.Containers.Ordered_Maps;
 with Ada.Containers.Vectors;
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
+with System.Multiprocessors;
 with WisiToken.Parse.LR;
+with WisiToken.Syntax_Trees;
 package WisiToken.BNF is
 
    --  See also WisiToken exceptions
 
    Not_Found : exception;
-   --  something not found; should be handled and converted to Syntax_ or Grammar_Error
+   --  Something not found; should be handled and converted to another
+   --  exception.
 
-   type Generate_Algorithm is (None, LALR, LR1, Packrat_Gen, Packrat_Proc, External);
+   type Generate_Algorithm is (None, LALR, LR1, Packrat_Gen, Packrat_Proc, External, Tree_Sitter);
    subtype Valid_Generate_Algorithm is Generate_Algorithm range LALR .. Generate_Algorithm'Last;
    subtype LR_Generate_Algorithm is Generate_Algorithm range LALR .. LR1;
    subtype Packrat_Generate_Algorithm is Generate_Algorithm range Packrat_Gen .. Packrat_Proc;
+   subtype LR_Packrat_Generate_Algorithm is Generate_Algorithm range LALR .. Packrat_Proc;
 
    Generate_Algorithm_Image : constant array (Generate_Algorithm) of String_Access_Constant :=
      (None         => new String'("None"),
@@ -55,7 +57,8 @@ package WisiToken.BNF is
       LR1          => new String'("LR1"),
       Packrat_Gen  => new String'("Packrat_Gen"),
       Packrat_Proc => new String'("Packrat_Proc"),
-      External     => new String'("External"));
+      External     => new String'("External"),
+      Tree_Sitter  => new String'("Tree_Sitter"));
    --  Suitable for Ada package names.
 
    function To_Generate_Algorithm (Item : in String) return Generate_Algorithm;
@@ -63,6 +66,8 @@ package WisiToken.BNF is
 
    type Generate_Algorithm_Set is array (Generate_Algorithm) of Boolean;
    type Generate_Algorithm_Set_Access is access Generate_Algorithm_Set;
+
+   function From_Generate_Env_Var return Generate_Algorithm_Set;
 
    type Output_Language is (Ada_Lang, Ada_Emacs_Lang);
    subtype Ada_Output_Language is Output_Language range Ada_Lang .. Ada_Emacs_Lang;
@@ -76,15 +81,15 @@ package WisiToken.BNF is
    function To_Output_Language (Item : in String) return Output_Language;
    --  Raises User_Error for invalid Item
 
-   type Lexer_Type is (None, Elisp_Lexer, re2c_Lexer);
-   subtype Valid_Lexer is Lexer_Type range Elisp_Lexer .. Lexer_Type'Last;
+   type Lexer_Type is (None, re2c_Lexer, Tree_Sitter_Lexer);
+   subtype Valid_Lexer is Lexer_Type range re2c_Lexer .. Lexer_Type'Last;
    --  We append "_Lexer" to these names to avoid colliding with the
    --  similarly-named WisiToken packages. In the grammar file, they
    --  are named by:
    Lexer_Image : constant array (Lexer_Type) of String_Access_Constant :=
-     (None        => new String'("none"),
-      Elisp_Lexer => new String'("elisp"),
-      re2c_Lexer  => new String'("re2c"));
+     (None              => new String'("none"),
+      re2c_Lexer        => new String'("re2c"),
+      Tree_Sitter_Lexer => new String'("tree_sitter"));
 
    function To_Lexer (Item : in String) return Lexer_Type;
    --  Raises User_Error for invalid Item
@@ -92,10 +97,18 @@ package WisiToken.BNF is
    type Lexer_Set is array (Lexer_Type) of Boolean;
 
    type Lexer_Generate_Algorithm_Set is array (Lexer_Type) of Generate_Algorithm_Set;
-   --  %if lexer change change the generated parse table
+   --  %if lexer changes the generated parse table
 
    type Interface_Type is (None, Process, Module);
    subtype Valid_Interface is Interface_Type range Process .. Module;
+
+   Interface_Image : constant array (Interface_Type) of String_Access_Constant :=
+     --  WORKAROUND: 'Image in GNAT Community 2020 with -gnat2020 returns integer
+     (None    => new String'("none"),
+      Process => new String'("process"),
+      Module  => new String'("module"));
+
+   function Is_Valid_Interface (Item : in String) return Boolean;
 
    type Generate_Tuple is record
       Gen_Alg        : Generate_Algorithm := None;
@@ -105,6 +118,8 @@ package WisiToken.BNF is
       Text_Rep       : Boolean            := False;
    end record;
 
+   function Image (Item : in Generate_Tuple) return String;
+
    type Generate_Set is array (Natural range <>) of Generate_Tuple;
    type Generate_Set_Access is access Generate_Set;
    procedure Free is new Ada.Unchecked_Deallocation (Generate_Set, Generate_Set_Access);
@@ -112,6 +127,23 @@ package WisiToken.BNF is
    procedure Add
      (Set   : in out Generate_Set_Access;
       Tuple : in     Generate_Tuple);
+
+   function Text_Rep_File_Name
+     (File_Name_Root      : in String;
+      Tuple               : in Generate_Tuple;
+      Generate_Task_Count : in System.Multiprocessors.CPU_Range;
+      If_Lexer_Present    : in Boolean;
+      Test_Main           : in Boolean)
+     return String
+   is (File_Name_Root & "_" &
+         Ada.Characters.Handling.To_Lower (Generate_Algorithm_Image (Tuple.Gen_Alg).all) &
+         (if Tuple.Gen_Alg = LR1 and Test_Main
+          then "_t" & Ada.Strings.Fixed.Trim (Generate_Task_Count'Image, Ada.Strings.Both)
+          else "") &
+         (if If_Lexer_Present
+          then "_" & Lexer_Image (Tuple.Lexer).all
+          else "") &
+         "_parse_table.txt");
 
    package String_Lists is new Ada.Containers.Indefinite_Doubly_Linked_Lists (String);
 
@@ -122,14 +154,15 @@ package WisiToken.BNF is
    type Language_Param_Type is record
       --  Set by grammar file declarations or command line options. Error
       --  recover parameters are in McKenzie_Recover_Param_Type below.
-      Case_Insensitive          : Boolean := False;
+      Case_Insensitive          : Boolean  := False;
+      Declare_Enums             : Boolean  := True;
       End_Names_Optional_Option : Ada.Strings.Unbounded.Unbounded_String;
-      Use_Language_Runtime      : Boolean := True;
+      Error_Recover             : Boolean  := False; -- True if grammar specifies error recover parameters.
+      LR1_Hash_Table_Size       : Positive := 113; --  Should match sal-gen_unbounded_definite_hash_tables.ads
       Language_Runtime_Name     : Ada.Strings.Unbounded.Unbounded_String;
-      Declare_Enums             : Boolean := True;
-      Error_Recover             : Boolean := False;
+      Partial_Recursion         : Boolean  := False;
       Start_Token               : Ada.Strings.Unbounded.Unbounded_String;
-      Partial_Recursion         : Boolean := False;
+      Use_Language_Runtime      : Boolean  := True;
    end record;
 
    type Raw_Code_Location is
@@ -172,10 +205,10 @@ package WisiToken.BNF is
    --  Otherwise output all lines.
 
    procedure Put_File_Header
-     (Comment_Syntax : in String_2;
-      Emacs_Mode     : in String         := "";
-      Use_Tuple      : in Boolean        := False;
-      Tuple          : in Generate_Tuple := (others => <>));
+     (Comment_Syntax   : in String_2;
+      Emacs_Local_Vars : in String         := "";
+      Use_Tuple        : in Boolean        := False;
+      Tuple            : in Generate_Tuple := (others => <>));
    --  Output "parser support file <emacs_mode> /n command line: " comment to Ada.Text_IO.Current_Output.
 
    type String_Pair_Type is record
@@ -195,42 +228,32 @@ package WisiToken.BNF is
 
    package String_Triple_Lists is new Ada.Containers.Doubly_Linked_Lists (String_Triple_Type);
 
-   type Elisp_Action_Type is record
-      --  Elisp name is the key
-      Action_Label : Ada.Strings.Unbounded.Unbounded_String;
-      Ada_Name     : Ada.Strings.Unbounded.Unbounded_String;
-   end record;
-
-   package Elisp_Action_Maps is new Ada.Containers.Ordered_Maps
-     (Ada.Strings.Unbounded.Unbounded_String, Elisp_Action_Type, Ada.Strings.Unbounded."<");
-
-   function Is_Present (List : in Elisp_Action_Maps.Map; Name : in String) return Boolean;
+   package String_Pair_Maps is new Ada.Containers.Ordered_Maps
+     (Ada.Strings.Unbounded.Unbounded_String, String_Pair_Type, Ada.Strings.Unbounded."<");
 
    type McKenzie_Recover_Param_Type is record
-      Source_Line : WisiToken.Line_Number_Type := WisiToken.Invalid_Line_Number;
-      --  Of the %mckenzie_cost_default declaration; we assume the others
-      --  are near.
-
-      Default_Insert                        : Natural               := 0;
-      Default_Delete_Terminal               : Natural               := 0;
-      Default_Push_Back                     : Natural               := 0; -- also default for undo_reduce
-      Delete                                : String_Pair_Lists.List;
-      Insert                                : String_Pair_Lists.List;
-      Push_Back                             : String_Pair_Lists.List;
-      Undo_Reduce                           : String_Pair_Lists.List;
-      Minimal_Complete_Cost_Delta           : Integer               :=
+      Default_Insert              : Natural                    := 0;
+      Default_Delete_Terminal     : Natural                    := 0;
+      Default_Push_Back           : Natural                    := 0; -- also default for undo_reduce
+      Delete                      : String_Pair_Lists.List;
+      Insert                      : String_Pair_Lists.List;
+      Push_Back                   : String_Pair_Lists.List;
+      Undo_Reduce                 : String_Pair_Lists.List;
+      Minimal_Complete_Cost_Delta : Integer                    :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Minimal_Complete_Cost_Delta;
-      Fast_Forward                          : Integer               :=
+      Fast_Forward                : Integer                    :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Fast_Forward;
-      Matching_Begin                        : Integer               :=
+      Matching_Begin              : Integer                    :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Matching_Begin;
-      Ignore_Check_Fail                     : Natural               :=
+      Ignore_Check_Fail           : Natural                    :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Ignore_Check_Fail;
-      Check_Limit                           : WisiToken.Token_Index :=
+      Check_Limit                 : Syntax_Trees.Sequential_Index :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Check_Limit;
-      Check_Delta_Limit                     : Natural               :=
+      Zombie_Limit                : Positive :=
+        WisiToken.Parse.LR.Default_McKenzie_Param.Zombie_Limit;
+      Check_Delta_Limit           : Natural                    :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Check_Delta_Limit;
-      Enqueue_Limit                         : Natural               :=
+      Enqueue_Limit               : Natural                    :=
         WisiToken.Parse.LR.Default_McKenzie_Param.Enqueue_Limit;
    end record;
 
@@ -261,11 +284,11 @@ package WisiToken.BNF is
 
    type Conflict is record
       Source_Line : WisiToken.Line_Number_Type;
-      Action_A    : Ada.Strings.Unbounded.Unbounded_String;
-      LHS_A       : Ada.Strings.Unbounded.Unbounded_String;
-      Action_B    : Ada.Strings.Unbounded.Unbounded_String;
-      LHS_B       : Ada.Strings.Unbounded.Unbounded_String;
+      Items       : String_Pair_Lists.List;
+      --  Item (I).Name = action, .Value = lhs
       On          : Ada.Strings.Unbounded.Unbounded_String;
+      Resolution  : Ada.Strings.Unbounded.Unbounded_String;
+      --  Resolution is not empty if this is from %conflict_resolution.
    end record;
 
    package Conflict_Lists is new Ada.Containers.Doubly_Linked_Lists (Conflict);
@@ -280,10 +303,16 @@ package WisiToken.BNF is
    --  in call to post parse grammar action.
 
    type RHS_Type is record
-      Tokens      : Labeled_Token_Arrays.Vector;
+      Tokens            : Labeled_Token_Arrays.Vector;
+      Auto_Token_Labels : Boolean := False;
+      --  Token labels generated by Translate_EBNF_To_BNF
+
+      Edited_Token_List : Boolean := False;
+      --  RHS modified by Translate_EBNF_To_BNF; RHS_Index 0 has all tokens.
+
       Action      : Ada.Strings.Unbounded.Unbounded_String;
       Check       : Ada.Strings.Unbounded.Unbounded_String;
-      Source_Line : WisiToken.Line_Number_Type := WisiToken.Invalid_Line_Number;
+      Source_Line : WisiToken.Line_Number_Type := WisiToken.Line_Number_Type'First;
    end record;
    package RHS_Lists is new Ada.Containers.Doubly_Linked_Lists (RHS_Type, "=");
 
@@ -291,12 +320,15 @@ package WisiToken.BNF is
       Left_Hand_Side   : aliased Ada.Strings.Unbounded.Unbounded_String;
       Right_Hand_Sides : RHS_Lists.List;
       Labels           : String_Arrays.Vector;
+      Optimized_List   : Boolean := False;
       Source_Line      : WisiToken.Line_Number_Type;
    end record;
 
    package Rule_Lists is new Ada.Containers.Doubly_Linked_Lists (Rule_Type);
 
    function Is_Present (Rules : in Rule_Lists.List; LHS : in String) return Boolean;
+
+   function Find (Rules : in Rule_Lists.List; LHS : in String) return Rule_Lists.Cursor;
 
    type Tokens is record
       Non_Grammar : Token_Lists.List;
@@ -310,14 +342,22 @@ package WisiToken.BNF is
       --  Nonterminals and terminals introduced by translating from EBNF to
       --  BNF.
 
-      --  The following are specified in grammar file declarations and used
-      --  in other declarations or actions. Faces, Indents only used if .wy
-      --  action language is elisp and output language is not elisp.
+      Lexer_Regexps : String_Pair_Lists.List; -- %lexer_regexp
+      Faces         : String_Lists.List;      -- %elisp_face
 
-      re2c_Regexps : String_Pair_Lists.List; -- %re2c_regexp
-      Faces        : String_Lists.List;      -- %elisp_face
-      Indents      : String_Pair_Lists.List; -- %elisp_indent
-      Actions      : Elisp_Action_Maps.Map;  -- %elisp_action
+      Escape_Delimiter_Doubled : String_Lists.List; -- %escape_delimiter_doubled
+
+      Indents : String_Pair_Maps.Map;
+      --  %elisp_indent; variables or functions used in wisi-indent-action.
+      --  Map key => elisp_name
+      --  Name    => Ada_Name
+      --  Value   => arg_count, token_index_args
+
+      Actions : String_Pair_Maps.Map;
+      --  %elisp_action custom grammar actions.
+      --  Map key => elisp name
+      --  Name    => post-parse action; navigate, face, indent.
+      --  Value   => Ada name
    end record;
 
    function "+" (Item : in String) return Ada.Strings.Unbounded.Unbounded_String

@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2014, 2017 - 2020 All Rights Reserved.
+--  Copyright (C) 2014, 2017 - 2020, 2022 All Rights Reserved.
 --
 --  This program is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -21,24 +21,19 @@ pragma License (GPL);
 with Ada.Command_Line;
 with Ada.Directories;
 with Emacs_Wisi_Common_Parse; use Emacs_Wisi_Common_Parse;
-
 with WisiToken.Text_IO_Trace;
 procedure Gen_Emacs_Wisi_LR_Text_Rep_Parse
 is
-   use WisiToken; -- "+", "-" Unbounded_string
-
-   Trace      : aliased WisiToken.Text_IO_Trace.Trace (Descriptor'Unrestricted_Access);
-   Parser     : WisiToken.Parse.LR.Parser.Parser;
-   Parse_Data : aliased Parse_Data_Type (Parser.Terminals'Access, Parser.Line_Begin_Token'Access);
+   Trace               : aliased WisiToken.Text_IO_Trace.Trace;
+   Parse_Data_Template : aliased Parse_Data_Type;
 
    Params : constant Process_Start_Params := Get_Process_Start_Params;
 begin
-   Create_Parser
-     (Parser, Language_Fixes, Language_Matching_Begin_Tokens, Language_String_ID_Set,
-      Trace'Unrestricted_Access,
-      Parse_Data'Unchecked_Access,
-      Ada.Directories.Containing_Directory (Ada.Command_Line.Command_Name) & "/" & Text_Rep_File_Name);
-
-   Process_Stream (Name, Language_Protocol_Version, Partial_Parse_Active, Params, Parser, Parse_Data, Descriptor);
-
+   Process_Stream
+     (Name, Language_Protocol_Version, Params,
+      (Descriptor, Create_Lexer (Trace'Unchecked_Access), Create_Parse_Table
+         (Ada.Directories.Containing_Directory (Ada.Command_Line.Command_Name) & "/" & Text_Rep_File_Name),
+       Create_Productions, Partial_Parse_Active, Partial_Parse_Byte_Goal, Language_Fixes,
+       Language_Matching_Begin_Tokens, Language_String_ID_Set, Parse_Data_Template'Unchecked_Access),
+     Trace'Unchecked_Access);
 end Gen_Emacs_Wisi_LR_Text_Rep_Parse;

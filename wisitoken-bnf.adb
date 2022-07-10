@@ -2,7 +2,7 @@
 --
 --  see spec
 --
---  Copyright (C) 2012 - 2015, 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2012 - 2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  This program is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -20,9 +20,18 @@ pragma License (GPL);
 
 with Ada.Command_Line;
 with Ada.Directories;
+with Ada.Environment_Variables;
 with Ada.Text_IO;
-with Ada.Strings.Fixed;
 package body WisiToken.BNF is
+
+   function Is_Valid_Interface (Item : in String) return Boolean
+   is
+      Lower_Item : constant String := To_Lower (Item);
+   begin
+      return
+        Lower_Item = "process" or
+        Lower_Item = "module";
+   end Is_Valid_Interface;
 
    procedure Add
      (Set   : in out Generate_Set_Access;
@@ -39,6 +48,16 @@ package body WisiToken.BNF is
       Free (Prev);
    end Add;
 
+   function Image (Item : in Generate_Tuple) return String
+   is begin
+      return "(" & Generate_Algorithm_Image (Item.Gen_Alg).all & ", " &
+        Output_Language_Image (Item.Out_Lang).all & ", " &
+        Lexer_Image (Item.Lexer).all &
+        (if Item.Interface_Kind = None then "" else ", " & Interface_Image (Item.Interface_Kind).all) &
+        (if Item.Text_Rep then ", text_rep" else "") &
+        ")";
+   end Image;
+
    function To_Generate_Algorithm (Item : in String) return Generate_Algorithm
    is begin
       for I in Generate_Algorithm loop
@@ -48,6 +67,27 @@ package body WisiToken.BNF is
       end loop;
       raise User_Error with "invalid generate algorithm name: '" & Item & "'";
    end To_Generate_Algorithm;
+
+   function From_Generate_Env_Var return Generate_Algorithm_Set
+   is
+      Gen_String : constant String := Ada.Environment_Variables.Value ("GENERATE", "BNF_EBNF");
+   begin
+      --  GENERATE env var defined in wisitoken_test.gpr
+      if Gen_String = "" then
+         return (Tree_Sitter => False, others => True);
+      elsif Gen_String = "BNF_EBNF_Tree_Sitter" then
+         return (others => True);
+      elsif Gen_String = "BNF_EBNF" or
+        Gen_String = "BNF" or
+        Gen_String = "EBNF"
+      then
+         return (Tree_Sitter => False, others => True);
+      elsif Gen_String = "Tree_Sitter" then
+         return (Tree_Sitter => True, others => False);
+      else
+         raise SAL.Programmer_Error with "unsupported GENERATE env var value '" & Gen_String & "'";
+      end if;
+   end From_Generate_Env_Var;
 
    function To_Output_Language (Item : in String) return Output_Language
    is begin
@@ -150,14 +190,15 @@ package body WisiToken.BNF is
    end Put_Raw_Code;
 
    procedure Put_File_Header
-     (Comment_Syntax : in String_2;
-      Emacs_Mode     : in String         := "";
-      Use_Tuple      : in Boolean        := False;
-      Tuple          : in Generate_Tuple := (others => <>))
+     (Comment_Syntax   : in String_2;
+      Emacs_Local_Vars : in String         := "";
+      Use_Tuple        : in Boolean        := False;
+      Tuple            : in Generate_Tuple := (others => <>))
    is
       use Ada.Text_IO;
    begin
-      Put_Line (Comment_Syntax & "  generated parser support file." & Emacs_Mode);
+      Put_Line
+        (Comment_Syntax & "  generated parser support file. -*- buffer-read-only:t " & Emacs_Local_Vars & " -*-");
       Put_Command_Line  (Comment_Syntax & "  ", Use_Tuple, Tuple);
       Put_Line (Comment_Syntax);
    end Put_File_Header;
@@ -185,13 +226,6 @@ package body WisiToken.BNF is
       end loop;
       raise Not_Found;
    end Value;
-
-   function Is_Present (List : in Elisp_Action_Maps.Map; Name : in String) return Boolean
-   is
-      use Elisp_Action_Maps;
-   begin
-      return No_Element /= List.Find (+Name);
-   end Is_Present;
 
    function Count (Tokens : in Token_Lists.List) return Integer
    is
@@ -268,11 +302,27 @@ package body WisiToken.BNF is
             Found := True;
          end if;
       end Process;
-
    begin
       Rules.Iterate (Process'Access);
       return Found;
    end Is_Present;
+
+   function Find (Rules : in Rule_Lists.List; LHS : in String) return Rule_Lists.Cursor
+   is
+      use Rule_Lists;
+
+      Found : Cursor := No_Element;
+
+      procedure Process (Position : in Cursor)
+      is begin
+         if -Rules (Position).Left_Hand_Side = LHS then
+            Found := Position;
+         end if;
+      end Process;
+   begin
+      Rules.Iterate (Process'Access);
+      return Found;
+   end Find;
 
    function "+" (List : in String_Lists.List; Item : in String) return String_Lists.List
    is

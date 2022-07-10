@@ -40,8 +40,8 @@
 
   file-env
   ;; Environment (list of strings NAME=VALUE) set in project file;
-  ;; prepended to `process-environment' running tools in an external
-  ;; process.
+  ;; prepended to `process-environment' for running tools in an
+  ;; external process.
 
   compiler
   xref
@@ -336,22 +336,22 @@ If no symbol at point, or with prefix arg, prompt for symbol, goto spec."
       ;; from xref-backend-identifier-at-point; desired location is 'other'
       (let ((item (wisi-xref-item identifier prj)))
 	(condition-case err
-	    ;; WORKAROUND: xref 1.3.2 in Emacs 28 xref-location
-	    ;; changed from defclass to cl-defstruct. If drop emacs
-	    ;; 26, use 'with-suppressed-warnings'.
+	    ;; WORKAROUND: xref 1.3.2 xref-location changed from
+	    ;; defclass to cl-defstruct. If drop emacs 26, use
+	    ;; 'with-suppressed-warnings'.
 	    (with-no-warnings ;; "unknown slot"
-	      (let ((summary (if (functionp 'xref-item-summary) (xref-item-summary item) (oref item :summary)))
-		    (location (if (functionp 'xref-item-location) (xref-item-location item) (oref item :location)))
+	      (let ((summary (if (functionp 'xref-item-summary) (xref-item-summary item) (oref item summary)))
+		    (location (if (functionp 'xref-item-location) (xref-item-location item) (oref item location)))
 		    (eieio-skip-typecheck t)) ;; 'location' may have line, column nil
 		(let ((file (if (functionp 'xref-file-location-file)
 				(xref-file-location-file location)
-			      (oref location :file)))
+			      (oref location file)))
 		      (line (if (functionp 'xref-file-location-line)
 				(xref-file-location-line location)
-			      (oref location :line)))
+			      (oref location line)))
 		      (column (if (functionp 'xref-file-location-column)
 				  (xref-file-location-column location)
-				(oref location :column))))
+				(oref location column))))
 		  (let ((target
 			 (wisi-xref-other
 			  (wisi-prj-xref prj) prj
@@ -449,7 +449,7 @@ Displays a buffer in compilation-mode giving locations of the
 parent type declarations.")
 
 (defun wisi-show-declaration-parents ()
-  "Display the locations of the parent type declarations of the type identifier around point."
+  "Display the parent type declarations of the type identifier around point."
   (interactive)
   (let* ((project (wisi-check-current-project (buffer-file-name)))
 	 (id (wisi-prj-identifier-at-point project)))
@@ -566,10 +566,6 @@ COLUMN - Emacs column of the start of the identifier")
    ;; Not meaningful, but some project functions insist on a valid directory
    (car (wisi-prj-source-path project)))
 
-(cl-defmethod project-roots ((project wisi-prj))
-   ;; Not meaningful, but some project functions insist on a valid directory list
-   (wisi-prj-source-path project))
-
 (cl-defmethod project-files ((project wisi-prj) &optional dirs)
   (let (result)
     (dolist (dir (or dirs
@@ -584,6 +580,23 @@ COLUMN - Emacs column of the start of the identifier")
 	   (push absfile result)))
        (when (file-readable-p dir) ;; GNAT puts non-existing dirs on path.
 	 (directory-files dir t))))
+    result))
+
+(defun wisi-prj-kill-buffer-condition (buffer)
+  "Return non-nil if BUFFER should be killed.
+For `project-kill-buffer-conditions'."
+  (let* ((source-path (wisi-prj-source-path (project-current)))
+	 (buf-file-name (buffer-file-name buffer))
+	 (done (not (buffer-file-name buffer)))
+	 (result nil)
+	 dir)
+    (while (and source-path
+		(not done))
+      (setq dir (pop source-path))
+      (when (and dir
+		 (file-in-directory-p buf-file-name dir))
+	(setq done t)
+	(setq result t)))
     result))
 
 (defun wisi-refresh-prj-cache (not-full)
@@ -705,8 +718,8 @@ Called with three args: PROJECT NAME VALUE.")
       ;; ignore lines that don't have the format "name=value", put
       ;; 'name', 'value' in match-string.
       (when (looking-at "^\\([^= \n]+\\)=\\(.*\\)")
-	(let ((name (match-string 1))
-	      (value (match-string 2))
+	(let ((name (match-string-no-properties 1))
+	      (value (match-string-no-properties 2))
 	      result)
 
 	  ;; Both compiler and xref need to see some settings; eg gpr_file, env vars.
@@ -1142,30 +1155,24 @@ strings as code, and treat `wisi-case-strict' as t in code."
 		     (funcall wisi-case-adjust-p-function typed-char))
 		 ))
 
-      ;; The indentation engine may trigger a reparse on
-      ;; non-whitespace changes, but we know we don't need to reparse
-      ;; for this change (assuming the user has not abused case
-      ;; exceptions!).
-      (let ((inhibit-modification-hooks t))
-	(cond
-	 ;; Some attributes are also keywords, but captialized as
-	 ;; attributes. So check for attribute first.
-	 ((and
-	   (not in-comment)
-	   (save-excursion
-	     (skip-syntax-backward "w_")
-	     (eq (char-before) ?')))
-	  (wisi-case-adjust-identifier in-comment))
+      (cond
+       ;; Some attributes are also keywords, but capitalized as
+       ;; attributes. So check for attribute first.
+       ((and
+	 (not in-comment)
+	 (save-excursion
+	   (skip-syntax-backward "w_")
+	   (eq (char-before) ?')))
+	(wisi-case-adjust-identifier in-comment))
 
-	 ((and
-	   (not in-comment)
-	   (not (eq typed-char ?_))
-	   (wisi-after-keyword-p))
-	  (wisi-case-adjust-keyword))
+       ((and
+	 (not in-comment)
+	 (not (eq typed-char ?_))
+	 (wisi-after-keyword-p))
+	(wisi-case-adjust-keyword))
 
-	 (t (wisi-case-adjust-identifier in-comment))
-	 ))
-      )))
+       (t (wisi-case-adjust-identifier in-comment))
+       ))))
 
 (defun wisi-case-adjust-at-point (&optional in-comment)
   "If ’wisi-auto-case’ is non-nil, adjust case of symbol at point.
@@ -1431,7 +1438,8 @@ Also add DOMINATING-FILE (default current buffer file name) to
 
 ;;;###autoload
 (defun wisi-prj-current-parse (_dir)
-  "For `project-find-functions'; parse the current project file, select and return the project"
+  "Parse the current project file, select and return the project.
+For `project-find-functions'."
   (let ((prj (wisi-prj-parse-file
 	      :prj-file wisi-prj--current-file
 	      :init-prj (cdr (assoc-string wisi-prj--current-file wisi-prj--default))

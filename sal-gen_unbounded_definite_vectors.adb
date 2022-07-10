@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -471,6 +471,23 @@ package body SAL.Gen_Unbounded_Definite_Vectors is
       Set_Last (Container, Last);
    end Set_First_Last;
 
+   procedure Extend
+     (Container : in out Vector;
+      Index     : in     Index_Type)
+   is begin
+      if Container.First = No_Index then
+         Set_First (Container, Index);
+         Set_Last (Container, Index);
+
+      elsif Index < Container.First then
+         Set_First (Container, Index);
+
+      elsif Index > Container.Last then
+         Set_Last (Container, Index);
+
+      end if;
+   end Extend;
+
    procedure Delete (Container : in out Vector; Index : in Index_Type)
    is
       J : constant Peek_Type := To_Peek_Type (Index);
@@ -488,8 +505,8 @@ package body SAL.Gen_Unbounded_Definite_Vectors is
       if Container.Length = 0 then
          return False;
       else
-         for It of Container.Elements.all loop
-            if It = Element then
+         for I in To_Peek_Type (Container.First) .. To_Peek_Type (Container.Last) loop
+            if Container.Elements (I) = Element then
                return True;
             end if;
          end loop;

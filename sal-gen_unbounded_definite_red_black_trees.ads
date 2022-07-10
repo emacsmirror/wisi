@@ -35,6 +35,9 @@ with Ada.Iterator_Interfaces;
 with Ada.Unchecked_Deallocation;
 generic
    type Element_Type is private;
+   --  Element_Type must have valid default initialization; one
+   --  non-initialized object of this type is declared, in Tree.Nil.
+
    type Key_Type (<>) is private;
    with function Key (Element : in Element_Type) return Key_Type is <>;
    with function Key_Compare (Left, Right : in Key_Type) return Compare_Result is <>;
@@ -228,7 +231,7 @@ private
       --  'null'. This simplifies several algorithms (for example,
       --  Node.Left.Color is always valid). Its parent, left, right links
       --  are used as temp storage for some algorithms (especially Delete).
-      --  Nil.Color is Black.
+      --  Nil.Color is Black. Nil.Element is never accessed.
    end record;
 
    type Cursor is record

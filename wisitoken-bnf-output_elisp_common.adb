@@ -2,7 +2,7 @@
 --
 --  See spec
 --
---  Copyright (C) 2012, 2013, 2015, 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2012, 2013, 2015, 2017 - 2019, 2022 Free Software Foundation, Inc.
 --
 --  This program is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -194,7 +194,7 @@ package body WisiToken.BNF.Output_Elisp_Common is
       Indent_Line ("  '(");
       Indent := Indent + 3;
       for Pair of Tokens.Keywords loop
-         Indent_Line ("(" & (-Pair.Name) & " . " & (-Pair.Value) & ")");
+         Indent_Line ("(" & (-Pair.Name) & " . " & re2c_To_Elisp (-Pair.Value) & ")");
       end loop;
       for Kind of Tokens.Tokens loop
          for Token of Kind.Tokens loop

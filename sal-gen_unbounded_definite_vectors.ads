@@ -24,7 +24,7 @@
 --  several subprogram argument modes, and why Container must be an
 --  access discriminant in Cursor and Iterator.
 --
---  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -155,6 +155,11 @@ package SAL.Gen_Unbounded_Definite_Vectors is
       Last      : in     Extended_Index);
    --  Elements in the expansion from previous First .. Last are set to
    --  Default_Element.
+
+   procedure Extend
+     (Container : in out Vector;
+      Index     : in     Index_Type);
+   --  Extend Container index range (if needed) to include Index.
 
    procedure Delete (Container : in out Vector; Index : in Index_Type);
    --  Replace Index element contents with Default_Element. If Index =

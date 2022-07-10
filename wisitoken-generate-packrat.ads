@@ -10,7 +10,7 @@
 --
 --  See wisitoken-parse-packrat.ads.
 --
---  Copyright (C) 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2018, 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -25,6 +25,7 @@
 
 pragma License (Modified_GPL);
 
+with WisiToken.BNF;
 package WisiToken.Generate.Packrat is
 
    type Data (First_Terminal, First_Nonterminal, Last_Nonterminal : Token_ID) is tagged
@@ -53,15 +54,23 @@ package WisiToken.Generate.Packrat is
    procedure Check_Recursion (Data : in Packrat.Data; Descriptor : in WisiToken.Descriptor);
    --  Check that any rule recursion present is supported.
 
-   procedure Check_RHS_Order (Data : in Packrat.Data; Descriptor : in WisiToken.Descriptor);
+   procedure Check_RHS_Order
+     (Data       : in Packrat.Data;
+      Descriptor : in WisiToken.Descriptor;
+      Suppress   : in WisiToken.BNF.String_Pair_Lists.List);
    --  For each production, check that right hand sides that share
    --  prefixes have the longest right hand side first, and that any
    --  empty right hand side is last.
    --
-   --  Violations output a message to Ada.Text_IO.Standard_Error, and
-   --  set WisiToken.Generate.Error True.
+   --  Violations output a message to Ada.Text_IO.Standard_Error, and set
+   --  WisiToken.Generate.Error or WisiToken.Generate.Warning True.
+   --  Suppress allows suppressing warnings; see %suppress in wisitoken
+   --  user guide.
 
-   procedure Check_All  (Data : in Packrat.Data; Descriptor : in WisiToken.Descriptor);
+   procedure Check_All
+     (Data       : in Packrat.Data;
+      Descriptor : in WisiToken.Descriptor;
+      Suppress   : in WisiToken.BNF.String_Pair_Lists.List);
    --  Run all the above checks.
    --
    --  Note that WisiToken.Generate.Check_Consistent is run in

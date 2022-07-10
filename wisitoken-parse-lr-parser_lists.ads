@@ -2,7 +2,7 @@
 --
 --  Generalized LR parser state.
 --
---  Copyright (C) 2014-2015, 2017 - 2021 Free Software Foundation, Inc.
+--  Copyright (C) 2014-2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -22,22 +22,15 @@ pragma License (Modified_GPL);
 
 with Ada.Iterator_Interfaces;
 with SAL.Gen_Indefinite_Doubly_Linked_Lists;
-with SAL.Gen_Unbounded_Definite_Stacks;
 with WisiToken.Syntax_Trees;
 package WisiToken.Parse.LR.Parser_Lists is
-
-   type Parser_Stack_Item is record
-      State : Unknown_State_Index     := Unknown_State;
-      Token : Node_Index := Invalid_Node_Index;
-   end record;
-
-   package Parser_Stacks is new SAL.Gen_Unbounded_Definite_Stacks (Parser_Stack_Item);
+   use all type WisiToken.Syntax_Trees.Stream_ID;
+   use all type WisiToken.Syntax_Trees.Stream_Error_Ref;
 
    function Parser_Stack_Image
-     (Stack      : in Parser_Stacks.Stack;
-      Descriptor : in WisiToken.Descriptor;
-      Tree       : in Syntax_Trees.Tree;
-      Depth      : in SAL.Base_Peek_Type := 0)
+     (Stack : in Syntax_Trees.Stream_ID;
+      Tree  : in Syntax_Trees.Tree;
+      Depth : in SAL.Base_Peek_Type := 0)
      return String;
    --  If Depth = 0, put all of Stack. Otherwise put Min (Depth,
    --  Stack.Depth) items.
@@ -45,70 +38,131 @@ package WisiToken.Parse.LR.Parser_Lists is
    --  Unique name for calling from debugger
 
    function Image
-     (Stack      : in Parser_Stacks.Stack;
-      Descriptor : in WisiToken.Descriptor;
-      Tree       : in Syntax_Trees.Tree;
-      Depth      : in SAL.Base_Peek_Type := 0)
+     (Stack : in Syntax_Trees.Stream_ID;
+      Tree  : in Syntax_Trees.Tree;
+      Depth : in SAL.Base_Peek_Type := 0)
      return String renames Parser_Stack_Image;
 
    type Base_Parser_State is tagged
    record
       --  Visible components for direct access
+      --
+      --  The parse stack is in Shared_Parser.Tree (Parser_State.Stream).
 
-      Shared_Token : Base_Token_Index := Invalid_Token_Index;
-      --  Last token read from Shared_Parser.Terminals.
+      Recover : aliased LR.McKenzie_Data := (others => <>);
 
-      Recover_Insert_Delete : aliased Recover_Op_Arrays.Vector;
-      --  Tokens that were inserted or deleted during error recovery.
-      --  Contains only Insert and Delete ops. Filled by error recover, used
-      --  by main parse and Execute_Actions.
+      Recover_Insert_Delete : aliased Syntax_Trees.Valid_Node_Access_Lists.List;
+      --  List of nodes containing errors that contain recover operations;
+      --  tokens that were inserted or deleted during error recovery. Filled
+      --  by error recover, used by Execute_Actions for
+      --  User_Data.Insert_Token, .Delete_Token.
       --
       --  Not emptied between error recovery sessions, so Execute_Actions
       --  knows about all insert/delete.
 
-      Recover_Insert_Delete_Current : Recover_Op_Arrays.Extended_Index := Recover_Op_Arrays.No_Index;
-      --  Next item in Recover_Insert_Delete to be processed by main parse;
-      --  No_Index if all done.
+      Total_Recover_Cost     : Integer                   := 0;
+      Max_Recover_Ops_Length : Ada.Containers.Count_Type := 0;
+      Error_Count            : Integer                   := 0;
 
-      Current_Token : Node_Index := Invalid_Node_Index;
-      --  Current terminal, in Tree
-
-      Inc_Shared_Token : Boolean := True;
-
-      Stack : Parser_Stacks.Stack;
-      --  There is no need to use a branched stack; max stack length is
-      --  proportional to source text nesting depth, not source text length.
-
-      Tree : aliased Syntax_Trees.Tree;
-      --  We use a branched tree to avoid copying large trees for each
-      --  spawned parser; tree size is proportional to source text size. In
-      --  normal parsing, parallel parsers are short-lived; they each process
-      --  a few tokens, to resolve a grammar conflict.
-      --
-      --  When there is only one parser, tree nodes are written directly to
-      --  the shared tree (via the branched tree, with Flush => True).
-      --
-      --  When there is more than one, tree nodes are written to the
-      --  branched tree. Then when all but one parsers are terminated, the
-      --  remaining branched tree is flushed into the shared tree.
-
-      Recover : aliased LR.McKenzie_Data := (others => <>);
-
-      Zombie_Token_Count : Base_Token_Index := 0;
+      Zombie_Token_Count : Integer := 0;
       --  If Zombie_Token_Count > 0, this parser has errored, but is waiting
       --  to see if other parsers do also.
 
-      Resume_Active          : Boolean          := False;
-      Resume_Token_Goal      : Base_Token_Index := Invalid_Token_Index;
-      Conflict_During_Resume : Boolean          := False;
-      --  Resume is complete for this parser Shared_Token reaches this
-      --  Resume_Token_Goal.
+      Resume_Active : Boolean := False;
 
-      Errors : Parse_Error_Lists.List;
+      Resume_Token_Goal : Syntax_Trees.Base_Sequential_Index := Syntax_Trees.Invalid_Sequential_Index;
+      --  Set at the end of recovery, so during recovery it is the end of
+      --  the previous recover session.
+
+      Conflict_During_Resume : Boolean := False;
+
+      Last_Action : Parse_Action_Rec := (others => <>);
    end record;
 
    type Parser_State is new Base_Parser_State with private;
    type State_Access is access all Parser_State;
+
+   function Recover_Image
+     (Parser_State : in out Parser_Lists.Parser_State;
+      Tree         : in     Syntax_Trees.Tree;
+      Current_Only : in     Boolean := False)
+     return String;
+
+   function Current_Recover_Op (Parser_State : in Parser_Lists.Parser_State) return SAL.Base_Peek_Type;
+   --  Index into Parser_State.Current_Error_Ref recover_ops;
+   --  No_Insert_Delete if no current error (all ops done).
+
+   procedure Set_Current_Error_Features
+     (Parser_State : in out Parser_Lists.Parser_State;
+      Tree         : in     Syntax_Trees.Tree);
+   --  Record Syntax_Trees.Error_Node_Features of
+   --  Parser_State.Current_Error_Ref (called with default Features) to
+   --  enable Current_Error_Ref to find it again while recover ops are
+   --  processed.
+
+   procedure Clear_Current_Error_Features
+     (Parser_State : in out Parser_Lists.Parser_State);
+   --  Reset to default, ready for a new error recover session.
+
+   function Current_Error_Ref
+     (Parser_State : in Parser_Lists.Parser_State;
+      Tree         : in Syntax_Trees.Tree)
+     return Syntax_Trees.Stream_Error_Ref
+   with Post => Current_Error_Ref'Result /= Syntax_Trees.Invalid_Stream_Error_Ref;
+   --  Must only be called when Parser_State has an error; return current
+   --  error node. If Set_Current_Error_Features has been called, uses the
+   --  recorded Error_Node_Features.
+
+   procedure Do_Delete
+     (Parser_State : in out Parser_Lists.Parser_State;
+      Tree         : in out Syntax_Trees.Tree;
+      Op           : in out Delete_Op_Nodes;
+      User_Data    : in     Syntax_Trees.User_Data_Access_Constant);
+   --  Perform Delete operation on Stream, set Op.Del_Node to
+   --  deleted node. Update Parser_State.Current_Error_Features if deleted node =
+   --  error node.
+
+   procedure Undo_Reduce
+     (Parser_State : in out Parser_Lists.Parser_State;
+      Tree         : in out Syntax_Trees.Tree;
+      Table        : in     Parse_Table;
+      User_Data    : in     Syntax_Trees.User_Data_Access_Constant);
+   --  Undo reduction of nonterm at Parser_State.Stream.Stack_Top; Stack_Top is then
+   --  the last Child of the nonterm.
+   --
+   --  If Stream.Stack_Top has an error, it is moved to the first
+   --  terminal; if that error is the current error, update
+   --  Parser_State.Current_Error_Features.
+   --
+   --  Duplicates LR.Undo_Reduce; that is used by Edit_Tree, when there
+   --  is no Parser_State.
+
+   procedure First_Recover_Op (Parser_State : in out Parser_Lists.Parser_State);
+   --  Set Parser_State.Current_Recover_Op to 1, indicating that there
+   --  are insert/delete operations in the current error.
+
+   procedure Next_Recover_Op
+     (Parser_State : in out Parser_Lists.Parser_State;
+      Tree         : in     Syntax_Trees.Tree);
+   --  Increment Parser_State.Current_Recover_Op.
+
+   procedure Update_Error
+     (Parser_State : in out Parser_Lists.Parser_State;
+      Tree         : in out Syntax_Trees.Tree;
+      Data         : in     Syntax_Trees.Error_Data'Class;
+      User_Data    : in     Syntax_Trees.User_Data_Access_Constant);
+   --  Update current error with Data. If Parser_State.Current_Recover_Op
+   --  is the last op in the current error, append the current error node
+   --  to Parser_State.Recover_Insert_Delete, and reset
+   --  Parser_State.Current_Recover_Op.
+
+   function Peek_Current_Sequential_Terminal
+     (Parser_State : in Parser_Lists.Parser_State;
+      Tree         : in Syntax_Trees.Tree)
+     return Syntax_Trees.Terminal_Ref;
+   --  Return first terminal with a valid Sequential_Index from current
+   --  token or a following token if current is an empty nonterm. For
+   --  comparison with insert/delete token index.
 
    type List is tagged private
    with
@@ -117,9 +171,12 @@ package WisiToken.Parse.LR.Parser_Lists is
      Default_Iterator  => Iterate,
      Iterator_Element  => Parser_State;
 
-   function New_List (Shared_Tree : in Syntax_Trees.Base_Tree_Access) return List;
+   function New_List (Tree : in out Syntax_Trees.Tree) return List
+   with Pre => Tree.Parseable;
+   --  Create the first parse stream in Tree.
 
-   function Last_Label (List : in Parser_Lists.List) return Natural;
+   procedure Clear (List : in out Parser_Lists.List);
+   --  Empty list.
 
    function Count (List : in Parser_Lists.List) return SAL.Base_Peek_Type;
 
@@ -129,29 +186,26 @@ package WisiToken.Parse.LR.Parser_Lists is
    procedure Next (Cursor : in out Parser_Lists.Cursor);
    function Is_Done (Cursor : in Parser_Lists.Cursor) return Boolean;
    function Has_Element (Cursor : in Parser_Lists.Cursor) return Boolean is (not Is_Done (Cursor));
-   function Label (Cursor : in Parser_Lists.Cursor) return Natural;
-   function Total_Recover_Cost (Cursor : in Parser_Lists.Cursor) return Integer;
-   function Max_Recover_Ops_Length (Cursor : in Parser_Lists.Cursor) return Ada.Containers.Count_Type;
-   function Min_Recover_Cost (Cursor : in Parser_Lists.Cursor) return Integer;
+   function Stream (Cursor : in Parser_Lists.Cursor) return Syntax_Trees.Stream_ID;
 
    procedure Set_Verb (Cursor : in Parser_Lists.Cursor; Verb : in All_Parse_Action_Verbs);
    function Verb (Cursor : in Parser_Lists.Cursor) return All_Parse_Action_Verbs;
 
    procedure Terminate_Parser
-     (Parsers   : in out List;
-      Current   : in out Cursor'Class;
-      Message   : in     String;
-      Trace     : in out WisiToken.Trace'Class;
-      Terminals : in     Base_Token_Arrays.Vector);
-   --  Terminate Current. Current is set to no element.
+     (Parsers : in out List;
+      Current : in out Cursor'Class;
+      Tree    : in out Syntax_Trees.Tree;
+      Message : in     String;
+      Trace   : in out WisiToken.Trace'Class);
+   --  Terminate Current. Current is set to next element.
    --
-   --  Terminals is used to report the current token in the message.
+   --  Tree is used to report the current token in the message.
 
    procedure Duplicate_State
-     (Parsers   : in out List;
-      Current   : in out Cursor'Class;
-      Trace     : in out WisiToken.Trace'Class;
-      Terminals : in     Base_Token_Arrays.Vector);
+     (Parsers : in out List;
+      Current : in out Cursor'Class;
+      Tree    : in out Syntax_Trees.Tree;
+      Trace   : in out WisiToken.Trace'Class);
    --  If any other parser in Parsers has a stack equivalent to Current,
    --  Terminate one of them. Current is either unchanged, or advanced to
    --  the next parser.
@@ -176,10 +230,12 @@ package WisiToken.Parse.LR.Parser_Lists is
    with Pre => List.Count > 0;
    --  Direct access to visible components of first parser's Parser_State
 
-   procedure Put_Top_10 (Trace : in out WisiToken.Trace'Class; Cursor : in Parser_Lists.Cursor);
-   --  Put image of top 10 stack items to Trace.
-
-   procedure Prepend_Copy (List : in out Parser_Lists.List; Cursor : in Parser_Lists.Cursor'Class);
+   procedure Prepend_Copy
+     (List      : in out Parser_Lists.List;
+      Cursor    : in     Parser_Lists.Cursor'Class;
+      Tree      : in out Syntax_Trees.Tree;
+      User_Data : in     Syntax_Trees.User_Data_Access_Constant;
+      Trace     : in out WisiToken.Trace'Class);
    --  Copy parser at Cursor, prepend to current list. New copy will not
    --  appear in Cursor.Next ...; it is accessible as First (List).
    --
@@ -216,6 +272,7 @@ package WisiToken.Parse.LR.Parser_Lists is
    type Parser_Node_Access (<>) is private;
 
    function To_Cursor (Ptr : in Parser_Node_Access) return Cursor;
+   function To_Parser_Node_Access (Cur : in Cursor) return Parser_Node_Access;
 
    type Constant_Reference_Type (Element : not null access constant Parser_State) is null record
    with Implicit_Dereference => Element;
@@ -232,7 +289,7 @@ package WisiToken.Parse.LR.Parser_Lists is
      return State_Reference;
    pragma Inline (Reference);
 
-   function Persistent_State_Ref (Position : in Parser_Node_Access) return State_Access;
+   function Unchecked_State_Ref (Position : in Parser_Node_Access) return State_Access;
 
    function Has_Element (Iterator : in Parser_Node_Access) return Boolean;
 
@@ -240,16 +297,30 @@ package WisiToken.Parse.LR.Parser_Lists is
 
    function Iterate (Container : aliased in out List) return Iterator_Interfaces.Forward_Iterator'Class;
 
-   --  Access to some private Parser_State components
+   --  Access to private Parser_State components
 
-   function Label (Iterator : in Parser_State) return Natural;
-   procedure Set_Verb (Iterator : in out Parser_State; Verb : in All_Parse_Action_Verbs);
-   function Verb (Iterator : in Parser_State) return All_Parse_Action_Verbs;
+   function Stream (State : in Parser_State) return Syntax_Trees.Stream_ID;
+   procedure Set_Verb (State : in out Parser_State; Verb : in All_Parse_Action_Verbs);
+   function Verb (State : in Parser_State) return All_Parse_Action_Verbs;
+
+   procedure Clear_Stream (State : in out Parser_State);
+   --  Clear all references to Syntax_Tree streams, so the tree can be
+   --  finalized.
 
 private
 
    type Parser_State is new Base_Parser_State with record
-      Label : Natural; -- for debugging/verbosity
+
+      Current_Recover_Op : SAL.Base_Peek_Type := No_Insert_Delete;
+      --  Next op in Parser_State.Current_Error_Ref.Error.Recover_Ops to be
+      --  processed by main parse; No_Insert_Delete if all done.
+      --
+      --  We do not keep a copy of Parser_State.Current_Error_Ref, because
+      --  the main parser can change the Stream_Node_Ref by shift or reduce.
+
+      Current_Error_Features : Syntax_Trees.Error_Node_Features;
+
+      Stream : Syntax_Trees.Stream_ID;
 
       Verb : All_Parse_Action_Verbs := Shift; -- current action to perform
    end record;
@@ -257,17 +328,14 @@ private
    package Parser_State_Lists is new SAL.Gen_Indefinite_Doubly_Linked_Lists (Parser_State);
 
    type List is tagged record
-      Elements     : aliased Parser_State_Lists.List;
-      Parser_Label : Natural; -- label of last added parser.
+      Elements : aliased Parser_State_Lists.List;
    end record;
 
-   type Cursor is tagged
-   record
+   type Cursor is tagged record
       Ptr : Parser_State_Lists.Cursor;
    end record;
 
-   type Parser_Node_Access is
-   record
+   type Parser_Node_Access is record
       Ptr : Parser_State_Lists.Cursor;
    end record;
 

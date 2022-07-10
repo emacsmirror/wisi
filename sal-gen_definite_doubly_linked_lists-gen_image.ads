@@ -1,8 +1,8 @@
 --  Abstract :
 --
---  See spec.
+--  Image of parent.
 --
---  Copyright (C) 2018 Free Software Foundation, Inc.
+--  Copyright (C) 2019 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -17,19 +17,9 @@
 
 pragma License (Modified_GPL);
 
-with Ada.Strings.Unbounded;
-function SAL.Gen_Unbounded_Definite_Queues.Gen_Image_Aux (Item : in Queue; Aux : in Aux_Data) return String
-is
-   use Ada.Strings.Unbounded;
-   Result : Unbounded_String        := To_Unbounded_String ("(");
-   Last   : constant Base_Peek_Type := Item.Count;
-begin
-   for I in 1 .. Last loop
-      Result := Result & Element_Image (Item.Peek (I), Aux);
-      if I /= Last then
-         Result := Result & ", ";
-      end if;
-   end loop;
-   Result := Result & ")";
-   return To_String (Result);
-end SAL.Gen_Unbounded_Definite_Queues.Gen_Image_Aux;
+generic
+   with function Element_Image (Item : in Element_Type) return String;
+function SAL.Gen_Definite_Doubly_Linked_Lists.Gen_Image
+  (Item : in List; Strict : in Boolean := False) return String;
+--  Image of Item, in Ada aggregate syntax. If Strict, use correct
+--  syntax for 0 and 1 item; otherwise, use () and (item).

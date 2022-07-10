@@ -1,8 +1,8 @@
---  generated parser support file.
+--  generated parser support file. -*- buffer-read-only:t  -*-
 --  command line: wisitoken-bnf-generate.exe  --generate LALR Ada re2c PROCESS wisitoken_grammar.wy
 --
 
---  Copyright (C) 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2022 Free Software Foundation, Inc.
 --
 --  Author: Stephen Leake <stephe-leake@stephe-leake.org>
 --
@@ -24,26 +24,35 @@
 with WisiToken.Syntax_Trees;
 package Wisitoken_Grammar_Actions is
 
-   Descriptor : aliased WisiToken.Descriptor :=
+   Descriptor : aliased constant WisiToken.Descriptor :=
      (First_Terminal    => 3,
-      Last_Terminal     => 36,
-      First_Nonterminal => 37,
-      Last_Nonterminal  => 56,
-      EOI_ID            => 36,
-      Accept_ID         => 37,
-      Case_Insensitive  => False,
-      New_Line_ID       => 1,
-      String_1_ID       => 35,
-      String_2_ID       => 34,
-      Image             =>
+      Last_Terminal       => 42,
+      First_Nonterminal   => 43,
+      Last_Nonterminal    => 66,
+      SOI_ID              => 67,
+      EOI_ID              => 42,
+      Accept_ID           => 43,
+      Case_Insensitive    => False,
+      New_Line_ID         => 1,
+      String_1_ID         => 41,
+      String_2_ID         => 40,
+      Image               =>
         (new String'("WHITESPACE"),
          new String'("NEW_LINE"),
          new String'("COMMENT"),
+         new String'("ACCEPT_I"),
          new String'("CODE"),
+         new String'("CONFLICT"),
+         new String'("CONFLICT_RESOLUTION"),
          new String'("END"),
+         new String'("ELSIF"),
          new String'("IF"),
+         new String'("IN"),
          new String'("KEYWORD"),
          new String'("NON_GRAMMAR"),
+         new String'("ON"),
+         new String'("REDUCE_I"),
+         new String'("SHIFT_I"),
          new String'("TOKEN"),
          new String'("RAW_CODE"),
          new String'("REGEXP"),
@@ -51,7 +60,6 @@ package Wisitoken_Grammar_Actions is
          new String'("BAR"),
          new String'("COLON"),
          new String'("COLON_COLON_EQUAL"),
-         new String'("COMMA"),
          new String'("EQUAL"),
          new String'("GREATER"),
          new String'("LEFT_BRACE"),
@@ -66,7 +74,6 @@ package Wisitoken_Grammar_Actions is
          new String'("RIGHT_BRACKET"),
          new String'("RIGHT_PAREN"),
          new String'("SEMICOLON"),
-         new String'("SLASH"),
          new String'("STAR"),
          new String'("NUMERIC_LITERAL"),
          new String'("IDENTIFIER"),
@@ -74,11 +81,15 @@ package Wisitoken_Grammar_Actions is
          new String'("STRING_LITERAL_2"),
          new String'("Wisi_EOI"),
          new String'("wisitoken_accept"),
+         new String'("regexp_string"),
+         new String'("conflict_item"),
+         new String'("conflict_item_list"),
+         new String'("token_name"),
          new String'("declaration"),
-         new String'("token_keyword_non_grammar"),
          new String'("identifier_list"),
-         new String'("declaration_item_list"),
+         new String'("IDENTIFIER_BAR_list"),
          new String'("declaration_item"),
+         new String'("declaration_item_list"),
          new String'("nonterminal"),
          new String'("semicolon_opt"),
          new String'("rhs_list"),
@@ -92,20 +103,29 @@ package Wisitoken_Grammar_Actions is
          new String'("rhs_multiple_item"),
          new String'("rhs_alternative_list"),
          new String'("compilation_unit"),
-         new String'("compilation_unit_list")),
-      Terminal_Image_Width => 17,
-      Image_Width          => 25,
-      Last_Lookahead       => 37);
+         new String'("compilation_unit_list"),
+         new String'("Wisi_SOI")),
+      Terminal_Image_Width => 19,
+      Image_Width          => 21,
+      Last_Lookahead       => 43);
 
    type Token_Enum_ID is
      (WHITESPACE_ID,
       NEW_LINE_ID,
       COMMENT_ID,
+      ACCEPT_I_ID,
       CODE_ID,
+      CONFLICT_ID,
+      CONFLICT_RESOLUTION_ID,
       END_ID,
+      ELSIF_ID,
       IF_ID,
+      IN_ID,
       KEYWORD_ID,
       NON_GRAMMAR_ID,
+      ON_ID,
+      REDUCE_I_ID,
+      SHIFT_I_ID,
       TOKEN_ID,
       RAW_CODE_ID,
       REGEXP_ID,
@@ -113,7 +133,6 @@ package Wisitoken_Grammar_Actions is
       BAR_ID,
       COLON_ID,
       COLON_COLON_EQUAL_ID,
-      COMMA_ID,
       EQUAL_ID,
       GREATER_ID,
       LEFT_BRACE_ID,
@@ -128,7 +147,6 @@ package Wisitoken_Grammar_Actions is
       RIGHT_BRACKET_ID,
       RIGHT_PAREN_ID,
       SEMICOLON_ID,
-      SLASH_ID,
       STAR_ID,
       NUMERIC_LITERAL_ID,
       IDENTIFIER_ID,
@@ -136,11 +154,15 @@ package Wisitoken_Grammar_Actions is
       STRING_LITERAL_2_ID,
       Wisi_EOI_ID,
       wisitoken_accept_ID,
+      regexp_string_ID,
+      conflict_item_ID,
+      conflict_item_list_ID,
+      token_name_ID,
       declaration_ID,
-      token_keyword_non_grammar_ID,
       identifier_list_ID,
-      declaration_item_list_ID,
+      IDENTIFIER_BAR_list_ID,
       declaration_item_ID,
+      declaration_item_list_ID,
       nonterminal_ID,
       semicolon_opt_ID,
       rhs_list_ID,
@@ -154,7 +176,8 @@ package Wisitoken_Grammar_Actions is
       rhs_multiple_item_ID,
       rhs_alternative_list_ID,
       compilation_unit_ID,
-      compilation_unit_list_ID);
+      compilation_unit_list_ID,
+      Wisi_SOI_ID);
 
    type Token_Enum_ID_Array is array (Positive range <>) of Token_Enum_ID;
    use all type WisiToken.Token_ID;
@@ -165,73 +188,99 @@ package Wisitoken_Grammar_Actions is
    function "-" (Item : in WisiToken.Token_ID) return Token_Enum_ID renames To_Token_Enum;
 
    procedure declaration_0
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure declaration_1
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure declaration_2
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure declaration_3
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure declaration_4
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure declaration_5
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_6
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_7
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_8
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_9
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_10
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_11
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_12
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_13
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_14
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   procedure declaration_15
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure nonterminal_0
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure nonterminal_1
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure rhs_item_1
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure rhs_item_2
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure rhs_item_3
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure rhs_item_4
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure rhs_item_5
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
    procedure rhs_optional_item_3
-    (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
-     Tree      : in out WisiToken.Syntax_Trees.Tree;
-     Nonterm   : in     WisiToken.Valid_Node_Index;
-     Tokens    : in     WisiToken.Valid_Node_Index_Array);
+     (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
+      Tree      : in out WisiToken.Syntax_Trees.Tree;
+      Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
 end Wisitoken_Grammar_Actions;

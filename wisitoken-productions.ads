@@ -2,7 +2,7 @@
 --
 --  Type and operations for building grammar productions.
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -21,7 +21,6 @@
 pragma License (Modified_GPL);
 
 with SAL.Gen_Unbounded_Definite_Vectors;
-with WisiToken.Semantic_Checks;
 with WisiToken.Syntax_Trees;
 package WisiToken.Productions is
    use all type Ada.Containers.Count_Type;
@@ -38,8 +37,8 @@ package WisiToken.Productions is
       --  Recursion for each token. There may be more than one recursion cycle for any token,
       --  but we don't track that.
 
-      Action : WisiToken.Syntax_Trees.Semantic_Action;
-      Check  : WisiToken.Semantic_Checks.Semantic_Check;
+      Post_Parse_Action : Syntax_Trees.Post_Parse_Action;
+      In_Parse_Action   : Syntax_Trees.In_Parse_Actions.In_Parse_Action;
    end record
    with Dynamic_Predicate =>
      (Tokens.Length = 0 or Tokens.First_Index = 1) and
@@ -50,8 +49,9 @@ package WisiToken.Productions is
      (Natural, Right_Hand_Side, Default_Element => (others => <>));
 
    type Instance is record
-      LHS  : Token_ID := Invalid_Token_ID;
-      RHSs : RHS_Arrays.Vector;
+      LHS            : Token_ID := Invalid_Token_ID;
+      Optimized_List : Boolean  := False;
+      RHSs           : RHS_Arrays.Vector;
    end record;
 
    package Prod_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
@@ -74,10 +74,10 @@ package WisiToken.Productions is
    --  Put Image of each production to Ada.Text_IO.Current_Output, for parse_table.
 
    package Line_Number_Arrays is new SAL.Gen_Unbounded_Definite_Vectors
-     (Natural, Line_Number_Type, Default_Element => Invalid_Line_Number);
+     (Natural, Line_Number_Type, Default_Element => Line_Number_Type'First);
 
    type Prod_Source_Line_Map is record
-      Line    : Line_Number_Type := Invalid_Line_Number;
+      Line    : Line_Number_Type := Line_Number_Type'First;
       RHS_Map : Line_Number_Arrays.Vector;
    end record;
 

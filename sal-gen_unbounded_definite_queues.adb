@@ -50,40 +50,6 @@ package body SAL.Gen_Unbounded_Definite_Queues is
       Queue.Data.Delete_First;
    end Drop;
 
-   function Peek (Queue : in Pkg.Queue; N : Peek_Type := 1) return Constant_Reference_Type
-   is
-      use Ada.Containers;
-      use Element_Lists;
-      I : Cursor := Queue.Data.First;
-   begin
-      if Count_Type (N) > Queue.Data.Length then
-         raise Parameter_Error;
-      end if;
-
-      for K in 2 .. N loop
-         Next (I);
-      end loop;
-
-      return (Element => Element_Lists.Constant_Reference (Queue.Data, I).Element, Dummy => 1);
-   end Peek;
-
-   function Variable_Peek (Queue : in out Pkg.Queue; N : Peek_Type := 1) return Variable_Reference_Type
-   is
-      use Ada.Containers;
-      use Element_Lists;
-      I : Cursor := Queue.Data.First;
-   begin
-      if Count_Type (N) > Queue.Data.Length then
-         raise Parameter_Error;
-      end if;
-
-      for K in 2 .. N loop
-         Next (I);
-      end loop;
-
-      return (Element => Element_Lists.Variable_Reference (Queue.Data, I).Element, Dummy => 1);
-   end Variable_Peek;
-
    procedure Add (Queue : in out Pkg.Queue; Item : in Element_Type)
    is begin
       Queue.Data.Append (Item);

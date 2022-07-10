@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2002, 2003, 2008, 2009, 2012 - 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2002, 2003, 2008, 2009, 2012 - 2015, 2017 - 2021 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -27,38 +27,44 @@
 
 pragma License (Modified_GPL);
 
-with Ada.Text_IO;
 with Ada.Strings.Unbounded;
+with Ada.Text_IO;
+with Ada.Unchecked_Conversion;
 package body WisiToken.Generate.LR1_Items is
    use type Ada.Strings.Unbounded.Unbounded_String;
 
    ----------
    --  body subprograms
 
-   function Get_Dot_IDs
-     (Grammar    : in WisiToken.Productions.Prod_Arrays.Vector;
-      Set        : in Item_Lists.List;
-      Descriptor : in WisiToken.Descriptor)
-     return Token_ID_Arrays.Vector
+   function Merge
+     (Prod         : in     Production_ID;
+      Dot          : in     Token_ID_Arrays.Extended_Index;
+      ID           : in     Token_ID;
+      Existing_Set : in out Item_Set)
+     return Boolean
    is
+      --  Merge item into Existing_Set. Return True if Existing_Set
+      --  is modified.
+
       use Item_Lists;
-      IDs : Token_ID_Set (Descriptor.First_Terminal .. Descriptor.Last_Nonterminal) := (others => False);
+
+      Found    : constant Item_Lists.Cursor := Find (Prod, Dot, Existing_Set);
+      Modified : Boolean                    := False;
    begin
-      for Item of Set loop
+      if not Has_Element (Found) then
+         Existing_Set.Set.Insert ((Prod, Dot, To_Lookahead (ID)));
+         Modified := True;
+      else
          declare
-            use Token_ID_Arrays;
-            Dot : constant Token_ID_Arrays.Cursor :=
-              WisiToken.Productions.Constant_Ref_RHS (Grammar, Item.Prod).Tokens.To_Cursor (Item.Dot);
+            Lookaheads : Lookahead renames Variable_Ref (Found).Lookaheads;
          begin
-            if Has_Element (Dot) then
-               if Element (Dot) /= Descriptor.EOI_ID then
-                  IDs (Element (Dot)) := True;
-               end if;
-            end if;
+            Modified := not Lookaheads (ID);
+            Lookaheads (ID) := True;
          end;
-      end loop;
-      return To_Array (IDs);
-   end Get_Dot_IDs;
+      end if;
+
+      return Modified;
+   end Merge;
 
    function Merge
      (Prod         : in     Production_ID;
@@ -76,7 +82,7 @@ package body WisiToken.Generate.LR1_Items is
       Modified : Boolean                    := False;
    begin
       if not Has_Element (Found) then
-         Existing_Set.Set.Insert ((Prod, Dot, new Token_ID_Set'(Lookaheads)));
+         Existing_Set.Set.Insert ((Prod, Dot, Lookaheads));
 
          Modified := True;
       else
@@ -89,9 +95,9 @@ package body WisiToken.Generate.LR1_Items is
    ----------
    --  Public subprograms, declaration order
 
-   function To_Lookahead (Item : in Token_ID; Descriptor : in WisiToken.Descriptor) return Lookahead
+   function To_Lookahead (Item : in Token_ID) return Lookahead
    is begin
-      return Result : Token_ID_Set := (Descriptor.First_Terminal .. Descriptor.Last_Lookahead => False) do
+      return Result : Lookahead := (others => False) do
          Result (Item) := True;
       end return;
    end To_Lookahead;
@@ -101,7 +107,7 @@ package body WisiToken.Generate.LR1_Items is
       use Ada.Strings.Unbounded;
       Result : Unbounded_String := Null_Unbounded_String;
    begin
-      for I in Item'Range loop
+      for I in Descriptor.First_Terminal .. Descriptor.Last_Lookahead  loop
          if Item (I) then
             if Length (Result) > 0 then
                Result := Result & "/";
@@ -125,26 +131,11 @@ package body WisiToken.Generate.LR1_Items is
      (Item  : in out LR1_Items.Item;
       Value : in     Lookahead;
       Added :    out Boolean)
-   is begin
-      Added := False;
-
-      for I in Item.Lookaheads'Range loop
-         if Value (I) then
-            Added := Added or not Item.Lookaheads (I);
-            Item.Lookaheads (I) := True;
-         end if;
-      end loop;
-   end Include;
-
-   procedure Include
-     (Item       : in out LR1_Items.Item;
-      Value      : in     Lookahead;
-      Descriptor : in     WisiToken.Descriptor)
    is
-      Added : Boolean;
-      pragma Unreferenced (Added);
+      Item_Lookaheads_1 : constant Lookahead := Item.Lookaheads;
    begin
-      Include (Item, Value, Added, Descriptor);
+      Item.Lookaheads := Item.Lookaheads or Value;
+      Added           := Item.Lookaheads /= Item_Lookaheads_1;
    end Include;
 
    procedure Include
@@ -152,20 +143,51 @@ package body WisiToken.Generate.LR1_Items is
       Value      : in     Lookahead;
       Added      :    out Boolean;
       Descriptor : in     WisiToken.Descriptor)
-   is begin
-      Added := False;
+   is
+      Item_Lookaheads_1 : constant Lookahead := Item.Lookaheads;
+   begin
+      Item.Lookaheads := Item.Lookaheads or Value;
 
-      for I in Item.Lookaheads'Range loop
-         if I = Descriptor.Last_Lookahead then
-            null;
-         else
-            if Value (I) then
-               Added := Added or not Item.Lookaheads (I);
-               Item.Lookaheads (I) := True;
-            end if;
-         end if;
-      end loop;
+      Item.Lookaheads (Descriptor.Last_Lookahead) := False;
+
+      Added := Item.Lookaheads /= Item_Lookaheads_1;
    end Include;
+
+   procedure Include
+     (Item       : in out LR1_Items.Item;
+      Value      : in     Lookahead;
+      Descriptor : in     WisiToken.Descriptor)
+   is begin
+      Item.Lookaheads := Item.Lookaheads or Value;
+
+      Item.Lookaheads (Descriptor.Last_Lookahead) := False;
+   end Include;
+
+   function Get_Dot_IDs
+     (Grammar    : in WisiToken.Productions.Prod_Arrays.Vector;
+      Set        : in Item_Lists.List;
+      Descriptor : in WisiToken.Descriptor)
+     return Token_ID_Arrays.Vector
+   is
+      use Item_Lists;
+      IDs : Token_ID_Set (Descriptor.First_Terminal .. Descriptor.Last_Nonterminal) := (others => False);
+   begin
+      --  Note that this algorithm eliminates duplicate Dot_IDs
+      for Item of Set loop
+         declare
+            use Token_ID_Arrays;
+            RHS : WisiToken.Productions.Right_Hand_Side renames
+              WisiToken.Productions.Constant_Ref_RHS (Grammar, Item.Prod);
+         begin
+            if Item.Dot in RHS.Tokens.First_Index .. RHS.Tokens.Last_Index then
+               if RHS.Tokens (Item.Dot) /= Descriptor.EOI_ID then
+                  IDs (RHS.Tokens (Item.Dot)) := True;
+               end if;
+            end if;
+         end;
+      end loop;
+      return To_Array (IDs);
+   end Get_Dot_IDs;
 
    function Filter
      (Set        : in     Item_Set;
@@ -178,7 +200,11 @@ package body WisiToken.Generate.LR1_Items is
         return Boolean)
      return Item_Set
    is begin
-      return Result : Item_Set := (Set => <>, Goto_List => Set.Goto_List, Dot_IDs => Set.Dot_IDs, State => Set.State)
+      return Result : Item_Set :=
+        (Set       => <>,
+         Goto_List => Set.Goto_List,
+         Dot_IDs   => Set.Dot_IDs,
+         Tree_Node => Set.Tree_Node)
       do
          for Item of Set.Set loop
             if Include (Grammar, Descriptor, Item) then
@@ -219,87 +245,107 @@ package body WisiToken.Generate.LR1_Items is
 
    function Find
      (Prod : in Production_ID;
-      Dot : in Token_ID_Arrays.Extended_Index;
+      Dot  : in Token_ID_Arrays.Extended_Index;
       Set  : in Item_Set)
      return Item_Lists.Cursor
    is begin
-      return Set.Set.Find ((Prod, Dot, null));
+      return Set.Set.Find ((Prod, Dot, Null_Lookahead));
    end Find;
 
-   function To_Item_Set_Tree_Key
-     (Item_Set           : in LR1_Items.Item_Set;
-      Include_Lookaheads : in Boolean)
-     return Item_Set_Tree_Key
-   is
-      use Interfaces;
-      use Item_Lists;
-      Cur : Item_Lists.Cursor := Item_Set.Set.First;
-   begin
-      return Result : Item_Set_Tree_Key do
-         Result.Append (Integer_16 (Item_Set.Set.Length));
-         --  Int_Arrays."<" compares length, but only after everything else; we
-         --  want it to compare first, since it is most likely to be different.
-
-         loop
-            exit when not Has_Element (Cur);
-            declare
-               Item_1 : Item renames Item_Set.Set (Cur);
-            begin
-               Result.Append (Integer_16 (Item_1.Prod.LHS));
-               Result.Append (Integer_16 (Item_1.Prod.RHS));
-               Result.Append (Integer_16 (Item_1.Dot));
-               if Include_Lookaheads then
-                  for ID in Item_1.Lookaheads'Range loop
-                     if Item_1.Lookaheads (ID) then
-                        Result.Append (Integer_16 (ID));
-                     end if;
-                  end loop;
-               end if;
-            end;
-            Next (Cur);
-         end loop;
-      end return;
-   end To_Item_Set_Tree_Key;
-
-   function Find
-     (New_Item_Set     : in Item_Set;
-      Item_Set_Tree    : in Item_Set_Trees.Tree;
-      Match_Lookaheads : in Boolean)
-     return Unknown_State_Index
-   is
-      use all type Item_Set_Trees.Cursor;
-
-      Tree_It    : constant Item_Set_Trees.Iterator := Item_Set_Trees.Iterate (Item_Set_Tree);
-      Key        : constant Item_Set_Tree_Key       := To_Item_Set_Tree_Key
-        (New_Item_Set, Include_Lookaheads => Match_Lookaheads);
-      Found_Tree : constant Item_Set_Trees.Cursor   := Tree_It.Find (Key);
-   begin
-      if Found_Tree = Item_Set_Trees.No_Element then
-         return Unknown_State;
-      else
-         return Item_Set_Tree (Found_Tree).State;
-      end if;
-   end Find;
-
-   procedure Add
-     (Grammar            : in     WisiToken.Productions.Prod_Arrays.Vector;
-      New_Item_Set       : in     Item_Set;
-      Item_Set_Vector    : in out Item_Set_List;
-      Item_Set_Tree      : in out Item_Set_Trees.Tree;
+   procedure Compute_Key_Hash
+     (Item_Set           : in out LR1_Items.Item_Set;
+      Rows               : in     Positive;
+      Grammar            : in     WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor         : in     WisiToken.Descriptor;
       Include_Lookaheads : in     Boolean)
    is
-      use Item_Set_Trees;
-      Key : constant Item_Set_Tree_Key := To_Item_Set_Tree_Key (New_Item_Set, Include_Lookaheads);
+      use Interfaces;
+
+      type Lookahead_Int_16 is record
+         Word_0 : Interfaces.Unsigned_16;
+         Word_1 : Interfaces.Unsigned_16;
+         Word_2 : Interfaces.Unsigned_16;
+         Word_3 : Interfaces.Unsigned_16;
+         Word_4 : Interfaces.Unsigned_16;
+         Word_5 : Interfaces.Unsigned_16;
+         Word_6 : Interfaces.Unsigned_16;
+         Word_7 : Interfaces.Unsigned_16;
+      end record;
+      for Lookahead_Int_16'Size use 128;
+
+      function To_Int_16 is new Ada.Unchecked_Conversion (Source => Lookahead, Target => Lookahead_Int_16);
    begin
-      Item_Set_Vector.Append (New_Item_Set);
-      Item_Set_Vector (Item_Set_Vector.Last_Index).Dot_IDs := Get_Dot_IDs (Grammar, New_Item_Set.Set, Descriptor);
-      Item_Set_Tree.Insert ((Key, New_Item_Set.State));
+      Item_Set.Tree_Node.Key.Append (Unsigned_16 (Item_Set.Set.Length));
+      --  Int_Arrays."<" compares length, but only after everything else; we
+      --  want it to compare first, since it is most likely to be different.
+
+      for Item of Item_Set.Set loop
+         if In_Kernel (Grammar, Descriptor, Item) then
+            Item_Set.Tree_Node.Key.Append (Unsigned_16 (Item.Prod.LHS));
+            Item_Set.Tree_Node.Key.Append (Unsigned_16 (Item.Prod.RHS));
+            Item_Set.Tree_Node.Key.Append (Unsigned_16 (Item.Dot));
+            if Include_Lookaheads then
+               declare
+                  Temp : constant Lookahead_Int_16 := To_Int_16 (Item.Lookaheads);
+               begin
+                  --  This faster than scanning the 128 booleans to get the token_ids,
+                  --  and shorter than some of those.
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_0);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_1);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_2);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_3);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_4);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_5);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_6);
+                  Item_Set.Tree_Node.Key.Append (Temp.Word_7);
+               end;
+            end if;
+         end if;
+      end loop;
+
+      Item_Set.Tree_Node.Hash := Hash_Sum_32 (Item_Set.Tree_Node.Key, Rows);
+   end Compute_Key_Hash;
+
+   function Hash_Sum_32 (Key : in Item_Set_Tree_Key; Rows : in Positive) return Positive
+   is
+      use Interfaces;
+      Accum : Unsigned_32 := 0;
+   begin
+      for I of Key loop
+         Accum := @ + Unsigned_32 (I);
+      end loop;
+
+      Accum := 1 + (Accum mod Unsigned_32 (Rows));
+      return Positive (Accum);
+   end Hash_Sum_32;
+
+   function To_Item_Set_Tree_Hash (Node : in Item_Set_Tree_Node; Rows : in Positive) return Positive
+   is
+      pragma Unreferenced (Rows);
+   begin
+      return Node.Hash;
+   end To_Item_Set_Tree_Hash;
+
+   procedure Add
+     (Grammar            : in     WisiToken.Productions.Prod_Arrays.Vector;
+      New_Item_Set       : in out Item_Set;
+      Item_Set_List      : in out LR1_Items.Item_Set_List;
+      Item_Set_Tree      : in out LR1_Items.Item_Set_Tree;
+      Descriptor         : in     WisiToken.Descriptor;
+      Hash_Table_Rows    : in     Positive;
+      Include_Lookaheads : in     Boolean)
+   is
+      use Item_Set_Trees;
+   begin
+      Compute_Key_Hash (New_Item_Set, Hash_Table_Rows, Grammar, Descriptor, Include_Lookaheads);
+      Item_Set_List.Append (New_Item_Set);
+      Item_Set_List (Item_Set_List.Last_Index).Dot_IDs := Get_Dot_IDs (Grammar, New_Item_Set.Set, Descriptor);
+      Item_Set_Tree.Insert (New_Item_Set.Tree_Node, Duplicate => SAL.Error);
    end Add;
 
    function Is_In
      (Item      : in Goto_Item;
-      Goto_List : in Goto_Item_Lists.List)
+      Goto_List : in Goto_Item_List)
      return Boolean
    is begin
       for List_Item of Goto_List loop
@@ -333,8 +379,9 @@ package body WisiToken.Generate.LR1_Items is
       Descriptor              : in WisiToken.Descriptor)
      return Item_Set
    is
-      use all type Item_Lists.Cursor;
       use Token_ID_Arrays;
+      use WisiToken.Productions;
+      use all type Item_Lists.Cursor;
 
       --  [dragon] algorithm 4.9 pg 231; figure 4.38 pg 232; procedure "closure"
       --
@@ -349,25 +396,30 @@ package body WisiToken.Generate.LR1_Items is
       loop
          declare
             Item : LR1_Items.Item renames I.Set (Item_I);
-            Dot  : constant Token_ID_Arrays.Cursor :=
-              WisiToken.Productions.Constant_Ref_RHS (Grammar, Item.Prod).Tokens.To_Cursor (Item.Dot);
+            Item_Tokens : Token_ID_Arrays.Vector renames Constant_Ref_RHS (Grammar, Item.Prod).Tokens;
+            Item_Dot_ID : constant Token_ID :=
+              (if Item.Dot in Item_Tokens.First_Index .. Item_Tokens.Last_Index
+               then Item_Tokens (Item.Dot)
+               else Invalid_Token_ID);
          begin
             --  An item has the structure [A -> alpha Dot B Beta, a].
             --
             --  If B is a nonterminal, find its productions and place
             --  them in the set with lookaheads from FIRST(Beta a).
-            if Has_Element (Dot) and then
-              Element (Dot) in Descriptor.First_Nonterminal .. Descriptor.Last_Nonterminal
+
+            if Item_Dot_ID /= Invalid_Token_ID and
+              Item_Dot_ID in Descriptor.First_Nonterminal .. Descriptor.Last_Nonterminal
             then
                declare
-                  Prod : WisiToken.Productions.Instance renames Grammar (Element (Dot));
+                  Prod : WisiToken.Productions.Instance renames Grammar (Item_Dot_ID);
                begin
                   For_Each_RHS :
                   for J in Prod.RHSs.First_Index .. Prod.RHSs.Last_Index loop
                      declare
                         RHS  : WisiToken.Productions.Right_Hand_Side renames Prod.RHSs (J);
                         P_ID : constant Production_ID := (Prod.LHS, J);
-                        Beta : Token_ID_Arrays.Cursor := Next (Dot); -- tokens after nonterminal, possibly null
+                        Beta : Integer := (if Item.Dot = Item_Tokens.Last_Index then No_Index else Item.Dot + 1);
+                        --  Tokens after Item nonterminal, null if No_Index
                      begin
                         --  Compute FIRST (<tail of right hand side> a); loop
                         --  until find a terminal, a nonterminal that
@@ -376,30 +428,31 @@ package body WisiToken.Generate.LR1_Items is
 
                         First_Tail :
                         loop
-                           if not Has_Element (Beta) then
+                           if Beta = No_Index then
                               --  Use FIRST (a); a = Item.Lookaheads.
                               --  Lookaheads are all terminals, so
                               --  FIRST (a) = a.
                               Added_Item := Added_Item or
-                                Merge (P_ID, To_Index (RHS.Tokens.First), Item.Lookaheads.all, I);
+                                Merge (P_ID, RHS.Tokens.First_Index (No_Index_If_Empty => True), Item.Lookaheads, I);
                               exit First_Tail;
 
-                           elsif Element (Beta) in Descriptor.First_Terminal .. Descriptor.Last_Terminal then
+                           elsif Item_Tokens (Beta) in Descriptor.First_Terminal .. Descriptor.Last_Terminal then
                               --  FIRST (Beta) = Beta
                               Added_Item := Added_Item or Merge
-                                (P_ID, To_Index (RHS.Tokens.First), To_Lookahead (Element (Beta), Descriptor), I);
+                                (P_ID, RHS.Tokens.First_Index (No_Index_If_Empty => True), Item_Tokens (Beta), I);
                               exit First_Tail;
 
                            else
                               --  Beta is a nonterminal; use FIRST (Beta)
-                              for Terminal of First_Terminal_Sequence (Element (Beta)) loop
+                              for Terminal of First_Terminal_Sequence (Item_Tokens (Beta)) loop
                                  Added_Item := Added_Item or
-                                   Merge (P_ID, To_Index (RHS.Tokens.First), To_Lookahead (Terminal, Descriptor), I);
+                                   Merge (P_ID, RHS.Tokens.First_Index (No_Index_If_Empty => True), Terminal, I);
                               end loop;
 
-                              if Has_Empty_Production (Element (Beta)) then
+                              if Has_Empty_Production (Item_Tokens (Beta)) then
                                  --  Process the next token in the tail, or "a"
-                                 Beta := Next (Beta);
+                                 Beta := (if Beta = Item_Tokens.Last_Index then No_Index else Beta + 1);
+
                               else
                                  exit First_Tail;
                               end if;
@@ -416,13 +469,8 @@ package body WisiToken.Generate.LR1_Items is
 
             Item_I := I.Set.First;
             Added_Item := False;
-
-            if Trace_Generate_Table > Extra then
-               Ada.Text_IO.Put_Line ("  closure:");
-               Put (Grammar, Descriptor, I);
-            end if;
          else
-            Item_I := Item_Lists.Next (Item_I);
+            Item_Lists.Next (Item_I);
          end if;
       end loop;
 
@@ -460,8 +508,8 @@ package body WisiToken.Generate.LR1_Items is
          else
             Result := Result & " ";
          end if;
-         Result := Result & Image (Element (I), Descriptor);
-         Next (I);
+         Result := Result & Image (RHS.Tokens (I), Descriptor);
+         RHS.Tokens.Next (I);
       end loop;
 
       if Item.Dot = No_Index then
@@ -469,7 +517,7 @@ package body WisiToken.Generate.LR1_Items is
       end if;
 
       if Show_Lookaheads then
-         Result := Result & ", " & Lookahead_Image (Item.Lookaheads.all, Descriptor);
+         Result := Result & ", " & Lookahead_Image (Item.Lookaheads, Descriptor);
       end if;
 
       return Ada.Strings.Unbounded.To_String (Result);
@@ -486,7 +534,7 @@ package body WisiToken.Generate.LR1_Items is
 
    procedure Put
      (Descriptor : in WisiToken.Descriptor;
-      List       : in Goto_Item_Lists.List)
+      List       : in Goto_Item_List)
    is
       use Ada.Text_IO;
    begin
@@ -524,8 +572,8 @@ package body WisiToken.Generate.LR1_Items is
    is
       use Ada.Text_IO;
    begin
-      if Item.State /= Unknown_State then
-         Put_Line ("State" & Unknown_State_Index'Image (Item.State) & ":");
+      if Item.Tree_Node.State /= Unknown_State then
+         Put_Line ("State" & Unknown_State_Index'Image (Item.Tree_Node.State) & ":");
       end if;
 
       Put (Grammar, Descriptor, Item.Set, Show_Lookaheads, Kernel_Only);

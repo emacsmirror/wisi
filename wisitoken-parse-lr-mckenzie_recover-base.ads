@@ -2,7 +2,7 @@
 --
 --  Base utilities for McKenzie_Recover
 --
---  Copyright (C) 2018 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -20,166 +20,119 @@ pragma License (Modified_GPL);
 with Ada.Exceptions;
 with WisiToken.Parse.LR.Parser;
 with WisiToken.Parse.LR.Parser_Lists;
-private package WisiToken.Parse.LR.McKenzie_Recover.Base is
+package WisiToken.Parse.LR.McKenzie_Recover.Base is
 
-   ----------
-   --  Protected object specs.
-   --
-   --  Tasking design requirements:
-   --
-   --  1) For each parse_state, find all solutions of the same lowest
-   --  cost.
-   --
-   --  2) use as many CPUs as available as fully as possible.
-   --
-   --  3) avoid
-   --     a) busy waits
-   --     b) race conditions
-   --     c) deadlocks.
-   --
-   --  For 2), we use worker_tasks to perform the check computations on
-   --  each configuration. We allocate N - 1 worker_tasks, where N is the
-   --  number of available CPUs, saving one CPU for Supervisor and the
-   --  foreground IDE.
-   --
-   --  For 1), worker_tasks always get the lowest cost configuration
-   --  available. However, some active worker_task may have a lower cost
-   --  configuration that it has not yet delivered to Supervisor.
-   --  Therefore we always wait until all current active worker_tasks
-   --  deliver their results before deciding we are done.
-   --
-   --  For 3a) we have one Supervisor protected object that controls
-   --  access to all Parse_States and configurations, and a Shared object
-   --  that provides appropriate access to the Shared_Parser components.
-   --
-   --  It is tempting to try to reduce contention for Supervisor by
-   --  having one protected object per parser, but that requires the
-   --  worker tasks to busy loop checking all the parsers.
-   --
-   --  There is still a race condition on Success; the solutions can be
-   --  delivered in different orders on different runs. This matters
-   --  because each solution results in a successful parse, possibly with
-   --  different actions (different indentation computed, for example).
-   --  Which solution finally succeeds depends on which are terminated
-   --  due to identical parser stacks, which in turn depends on the order
-   --  they were delivered. See ada-mode/tests/ada_mode-interactive_2.adb
-   --  for an example.
-   --
-   --  There is also a race condition on how many failed or higher cost
-   --  configurations are checked, before the final solutions are found.
-
-   type Config_Status is (Valid, All_Done);
    type Recover_State is (Active, Ready, Success, Fail);
 
    type Parser_Status is record
       Recover_State : Base.Recover_State;
       Parser_State  : Parser_Lists.State_Access;
       Fail_Mode     : Recover_Status;
-
-      Active_Workers : Natural;
-      --  Count of Worker_Tasks that have done Get but not Put or Success.
    end record;
 
    type Parser_Status_Array is array (SAL.Peek_Type range <>) of Parser_Status;
 
-   protected type Supervisor
-     (Trace             : not null access WisiToken.Trace'Class;
-      Check_Delta_Limit : Natural;
-      Enqueue_Limit     : Natural;
-      Parser_Count      : SAL.Peek_Type)
-   is
-      --  There is only one object of this type, declared in Recover.
+   type Supervisor (Parser_Count : SAL.Peek_Type) is tagged limited private;
 
-      procedure Initialize
-        (Parsers   : not null access Parser_Lists.List;
-         Terminals : not null access constant Base_Token_Arrays.Vector);
+   procedure Initialize
+     (Super         : in out Supervisor;
+      Shared_Parser : in out WisiToken.Parse.LR.Parser.Parser);
 
-      entry Get
-        (Parser_Index : out SAL.Base_Peek_Type;
-         Config       : out Configuration;
-         Status       : out Config_Status);
-      --  Get a new configuration to check. Available when there is a
-      --  configuration to get, or when all configs have been checked.
-      --
-      --  Increments active worker count.
-      --
-      --  Status values mean:
-      --
-      --  Valid - Parser_Index, Config are valid, should be checked.
-      --
-      --  All_Done - Parser_Index, Config are not valid.
+   procedure Get
+     (Super         : in out Supervisor;
+      Shared_Parser : in     Parser.Parser;
+      Parser_Index  :    out SAL.Base_Peek_Type;
+      Config        :    out Configuration);
+   --  Get a new configuration to check. If Parser_Index =
+   --  SAL.Base_Peek_Type'First, Config is invalid; there are no
+   --  configurations left to check.
 
-      procedure Success
-        (Parser_Index : in     SAL.Peek_Type;
-         Config       : in     Configuration;
-         Configs      : in out Config_Heaps.Heap_Type);
-      --  Report that Configuration succeeds for Parser_Label, and enqueue
-      --  Configs.
-      --
-      --  Decrements active worker count.
-
-      procedure Put (Parser_Index : in SAL.Peek_Type; Configs : in out Config_Heaps.Heap_Type);
-      --  Add Configs to the McKenzie_Data Config_Heap for Parser_Label
-      --
-      --  Decrements active worker count.
-
-      procedure Config_Full (Prefix : in String; Parser_Index : in SAL.Peek_Type);
-      --  Report that a config.ops was full when trying to add another op.
-      --  This is counted towards the enqueue limit.
-
-      function Recover_Result return Recover_Status;
-
-      procedure Fatal (E : in Ada.Exceptions.Exception_Occurrence);
-      --  Report a fatal error; abort all processing, make Done
-      --  available.
-
-      entry Done (Error_ID : out Ada.Exceptions.Exception_Id; Message : out Ada.Strings.Unbounded.Unbounded_String);
-      --  Available when all parsers have failed or succeeded, or an error
-      --  occured.
-      --
-      --  If Error_ID is not Null_Id, an error occured.
-
-      function Parser_State (Parser_Index : in SAL.Peek_Type) return Parser_Lists.Constant_Reference_Type;
-      function Label (Parser_Index : in SAL.Peek_Type) return Natural;
-
-   private
-      Parsers   : access Parser_Lists.List;
-      Terminals : access constant Base_Token_Arrays.Vector;
-
-      All_Parsers_Done        : Boolean;
-      Success_Counter         : Natural;
-      Min_Success_Check_Count : Natural;
-      Total_Enqueue_Count     : Natural;
-      Fatal_Called            : Boolean;
-      Result                  : Recover_Status;
-      Error_ID                : Ada.Exceptions.Exception_Id;
-      Error_Message           : Ada.Strings.Unbounded.Unbounded_String;
-      Parser_Status           : Parser_Status_Array (1 .. Parser_Count);
-   end Supervisor;
-
-   type Shared
-     (Trace                          : not null access WisiToken.Trace'Class;
-      Lexer                          : not null access constant WisiToken.Lexer.Instance'Class;
-      Table                          : not null access constant Parse_Table;
-      Language_Fixes                 : WisiToken.Parse.LR.Parser.Language_Fixes_Access;
-      Language_Matching_Begin_Tokens : WisiToken.Parse.LR.Parser.Language_Matching_Begin_Tokens_Access;
-      Language_String_ID_Set         : WisiToken.Parse.LR.Parser.Language_String_ID_Set_Access;
-      Terminals                      : not null access constant Base_Token_Arrays.Vector;
-      Line_Begin_Token               : not null access constant Line_Begin_Token_Vectors.Vector)
-     is null record;
-   --  There is only one object of this type, declared in Recover. It
-   --  provides appropriate access to Shared_Parser components.
-   --
-   --  Since all the accessible objects are read-only (except Trace),
-   --  there are no protected operations, and this is not a protected
-   --  type.
+   procedure Success
+     (Super         : in out Supervisor;
+      Shared_Parser : in     Parser.Parser;
+      Parser_Index  : in     SAL.Peek_Type;
+      Config        : in     Configuration;
+      Configs       : in out Config_Heaps.Heap_Type);
+   --  Report that Configuration succeeds for Parser_Label, and enqueue
+   --  Configs.
 
    procedure Put
-     (Message      : in              String;
-      Super        : not null access Base.Supervisor;
-      Shared       : not null access Base.Shared;
-      Parser_Index : in              SAL.Peek_Type;
-      Config       : in              Configuration;
-      Task_ID      : in              Boolean := True);
+     (Super         : in out Supervisor;
+      Shared_Parser : in     Parser.Parser;
+      Parser_Index  : in     SAL.Peek_Type;
+      Configs       : in out Config_Heaps.Heap_Type);
+   --  Add Configs to the McKenzie_Data Config_Heap for Parser_Label
+
+   procedure Config_Full
+     (Super         : in out Supervisor;
+      Shared_Parser : in     Parser.Parser;
+      Prefix        : in     String;
+      Parser_Index  : in     SAL.Peek_Type);
+   --  Report that a config.ops was full when trying to add another op.
+   --  This is counted towards the enqueue limit.
+
+   function Recover_Result (Super : in Supervisor) return Recover_Status;
+
+   function Done (Super : in Supervisor) return Boolean;
+   --  True when all parsers have failed or succeeded.
+
+   procedure Finish
+     (Super         : in out Supervisor;
+      Shared_Parser : in out Parser.Parser);
+
+   function Parser_State
+     (Super        : in Supervisor;
+      Parser_Index : in SAL.Peek_Type)
+     return Parser_Lists.Constant_Reference_Type;
+
+   function Stream (Super : in Supervisor; Parser_Index : in SAL.Peek_Type) return Syntax_Trees.Stream_ID;
+
+   procedure Extend_Sequential_Index
+     (Super         : in out Supervisor;
+      Shared_Parser : in out Parser.Parser;
+      Thru          : in     Syntax_Trees.Valid_Node_Access;
+      Positive      : in     Boolean)
+   with Pre => Shared_Parser.Tree.Is_Terminal (Thru),
+     Post => Shared_Parser.Tree.Get_Sequential_Index (Thru) /= Syntax_Trees.Invalid_Sequential_Index;
+   --  If Thru.Node has valid Sequential_Index, return.
+   --
+   --  Else extend Sequential_Index range thru Thru; if Positive, towards
+   --  EOI, else towards SOI.
+
+   procedure Extend_Sequential_Index
+     (Super         : in out Supervisor;
+      Shared_Parser : in out Parser.Parser;
+      Thru          : in     Syntax_Trees.Sequential_Index);
+   --  Ensure Sequential_Index range includes Thru, or SOI/EOI.
+
+   procedure Put
+     (Super         : in Supervisor;
+      Shared_Parser : in Parser.Parser;
+      Message       : in String;
+      Parser_Index  : in SAL.Peek_Type;
+      Config        : in Configuration);
+
+private
+
+   type Supervisor (Parser_Count : SAL.Peek_Type) is tagged limited
+   record
+      All_Parsers_Done        : Boolean                     := False;
+      Success_Counter         : Natural                     := 0;
+      Min_Success_Check_Count : Natural                     := Natural'Last;
+      Total_Enqueue_Count     : Natural                     := 0;
+      Fatal_Called            : Boolean                     := False;
+      Error_ID                : Ada.Exceptions.Exception_Id := Ada.Exceptions.Null_Id;
+      Error_Message           : Ada.Strings.Unbounded.Unbounded_String;
+      Parser_Status           : Parser_Status_Array (1 .. Parser_Count);
+
+      Min_Sequential_Indices : Syntax_Trees.Stream_Node_Parents_Array (1 .. Parser_Count);
+      Max_Sequential_Indices : Syntax_Trees.Stream_Node_Parents_Array (1 .. Parser_Count);
+   end record;
+
+   function Min_Sequential_Index (Super : in Supervisor) return Syntax_Trees.Stream_Node_Parents_Array
+   is (Super.Min_Sequential_Indices);
+
+   function Max_Sequential_Index (Super : in Supervisor) return Syntax_Trees.Stream_Node_Parents_Array
+   is (Super.Max_Sequential_Indices);
 
 end WisiToken.Parse.LR.McKenzie_Recover.Base;

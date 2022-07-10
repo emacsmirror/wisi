@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2019, 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -319,6 +319,11 @@ package body SAL.Gen_Unbounded_Definite_Min_Heaps_Fibonacci is
    is begin
       return (Element => Heap.Min.all.Element'Access, Dummy => 1);
    end Peek;
+
+   function Peek_Var (Heap : in Heap_Type) return Variable_Reference_Type
+   is begin
+      return (Element => Heap.Min.all.Element'Access, Dummy => 1);
+   end Peek_Var;
 
    procedure Process (Heap : in Heap_Type; Process_Element : access procedure (Element : in Element_Type))
    is

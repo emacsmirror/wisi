@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 1997 - 2004, 2006, 2009, 2019, 2020 Free Software Foundation, Inc.
+--  Copyright (C) 1997 - 2004, 2006, 2009, 2019 - 2022 Free Software Foundation, Inc.
 --
 --  SAL is free software; you can redistribute it and/or modify it
 --  under terms of the GNU General Public License as published by the
@@ -28,7 +28,7 @@ package body SAL is
 
    function Version return String is
    begin
-      return "SAL 3.5";
+      return "SAL 3.6";
    end Version;
 
    function String_Compare (Left, Right : in String) return Compare_Result
@@ -66,5 +66,16 @@ package body SAL is
          end if;
       end if;
    end String_Compare;
+
+   function Gen_Compare_Integer (Left, Right : in Item_Type) return Compare_Result
+   is begin
+      if Left < Right then
+         return Less;
+      elsif Left > Right then
+         return Greater;
+      else
+         return Equal;
+      end if;
+   end Gen_Compare_Integer;
 
 end SAL;

@@ -2,7 +2,7 @@
 --
 --  See spec.
 --
---  Copyright (C) 2013-2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2013-2015, 2017 - 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -27,9 +27,10 @@
 
 pragma License (GPL);
 
+with Ada.Characters.Handling;
 with Ada.Exceptions;
-with Ada.Strings.Maps;
 with Ada.Strings.Fixed;
+with Ada.Strings.Maps;
 with Ada.Text_IO;
 with GNATCOLL.Mmap;
 package body WisiToken.Parse.LR is
@@ -55,25 +56,26 @@ package body WisiToken.Parse.LR is
       end case;
    end Image;
 
-   procedure Put (Trace : in out WisiToken.Trace'Class; Item : in Parse_Action_Rec)
-   is
-      use Ada.Containers;
-   begin
+   function Trace_Image (Item : in Parse_Action_Rec; Descriptor : in WisiToken.Descriptor) return String
+   is begin
       case Item.Verb is
       when Shift =>
-         Trace.Put ("shift and goto state" & State_Index'Image (Item.State), Prefix => False);
+         return "shift and goto state" &
+           (if Trace_Parse_No_State_Numbers
+            then " --"
+            else State_Index'Image (Item.State));
 
       when Reduce =>
-         Trace.Put
-           ("reduce" & Count_Type'Image (Item.Token_Count) & " tokens to " &
-              Image (Item.Production.LHS, Trace.Descriptor.all),
-            Prefix => False);
+         return "reduce" & Item.Token_Count'Image  & " tokens to " &
+           Image (Item.Production.LHS, Descriptor);
+
       when Accept_It =>
-         Trace.Put ("accept it", Prefix => False);
+         return "accept it";
+
       when Error =>
-         Trace.Put ("ERROR", Prefix => False);
+         return "ERROR";
       end case;
-   end Put;
+   end Trace_Image;
 
    function Equal (Left, Right : in Parse_Action_Rec) return Boolean
    is
@@ -109,16 +111,21 @@ package body WisiToken.Parse.LR is
       return False;
    end Is_In;
 
-   function Compare (Left, Right : in Token_ID) return SAL.Compare_Result
-   is begin
-      if Left < Right then
-         return SAL.Less;
-      elsif Left = Right then
-         return SAL.Equal;
+   procedure Delete
+     (Container : in out Action_Node;
+      Prev      : in     Parse_Action_Node_Ptr;
+      Current   : in out Parse_Action_Node_Ptr)
+   is
+      To_Delete : Parse_Action_Node_Ptr := Current;
+   begin
+      Current := Current.Next;
+      if Container.Actions = To_Delete then
+         Container.Actions := Current;
       else
-         return SAL.Greater;
+         Prev.Next := Current;
       end if;
-   end Compare;
+      Free (To_Delete);
+   end Delete;
 
    procedure Add
      (List   : in out Action_Arrays.Vector;
@@ -163,6 +170,14 @@ package body WisiToken.Parse.LR is
         Item.Reduce_Count'Image & ")";
    end Strict_Image;
 
+   function Image (Item : in Kernel_Info; Descriptor : in WisiToken.Descriptor) return String
+   is begin
+      return "(" & Image (Item.Production, Descriptor) & ", " &
+        Item.Length_After_Dot'Image & ", " &
+        Image (Item.Reduce_Production, Descriptor) & ", " &
+        Item.Reduce_Count'Image & ")";
+   end Image;
+
    function Strict_Image (Item : in Minimal_Action) return String
    is begin
       case Item.Verb is
@@ -182,7 +197,7 @@ package body WisiToken.Parse.LR is
       when Shift =>
          return "Shift " & Image (Item.ID, Descriptor);
       when Reduce =>
-         return "Reduce to " & Image (Item.Production.LHS, Descriptor);
+         return "Reduce" & Item.Token_Count'Image & " tokens to " & Image (Item.Production.LHS, Descriptor);
       end case;
    end Image;
 
@@ -210,33 +225,27 @@ package body WisiToken.Parse.LR is
       Symbol          : in     Token_ID;
       Verb            : in     LR.Parse_Action_Verbs;
       Production      : in     Production_ID;
-      RHS_Token_Count : in     Ada.Containers.Count_Type;
-      Semantic_Action : in     WisiToken.Syntax_Trees.Semantic_Action;
-      Semantic_Check  : in     Semantic_Checks.Semantic_Check)
+      RHS_Token_Count : in     Ada.Containers.Count_Type)
    is
       Action : constant Parse_Action_Rec :=
         (case Verb is
-         when Reduce    => (Reduce, Production, Semantic_Action, Semantic_Check, RHS_Token_Count),
-         when Accept_It => (Accept_It, Production, Semantic_Action, Semantic_Check, RHS_Token_Count),
+         when Reduce    => (Reduce, Production, RHS_Token_Count),
+         when Accept_It => (Accept_It, Production, RHS_Token_Count),
          when others    => raise SAL.Programmer_Error);
    begin
       Add (State.Action_List, Symbol, Action);
    end Add_Action;
 
    procedure Add_Action
-     (State           : in out Parse_State;
-      Symbols         : in     Token_ID_Array;
-      Production      : in     Production_ID;
-      RHS_Token_Count : in     Ada.Containers.Count_Type;
-      Semantic_Action : in     WisiToken.Syntax_Trees.Semantic_Action;
-      Semantic_Check  : in     WisiToken.Semantic_Checks.Semantic_Check)
+     (State             : in out Parse_State;
+      Symbols           : in     Token_ID_Array;
+      Production        : in     Production_ID;
+      RHS_Token_Count   : in     Ada.Containers.Count_Type)
    is begin
       --  We assume WisiToken.BNF.Output_Ada_Common.Duplicate_Reduce is True
       --  for this state; no conflicts, all the same action, Recursive.
       for Symbol of Symbols loop
-         Add_Action
-           (State, Symbol, Reduce, Production, RHS_Token_Count,
-            Semantic_Action, Semantic_Check);
+         Add_Action (State, Symbol, Reduce, Production, RHS_Token_Count);
       end loop;
    end Add_Action;
 
@@ -244,12 +253,9 @@ package body WisiToken.Parse.LR is
      (State             : in out LR.Parse_State;
       Symbol            : in     Token_ID;
       Reduce_Production : in     Production_ID;
-      RHS_Token_Count   : in     Ada.Containers.Count_Type;
-      Semantic_Action   : in     WisiToken.Syntax_Trees.Semantic_Action;
-      Semantic_Check    : in     Semantic_Checks.Semantic_Check)
+      RHS_Token_Count   : in     Ada.Containers.Count_Type)
    is
-      Conflict : constant Parse_Action_Rec :=
-        (Reduce, Reduce_Production, Semantic_Action, Semantic_Check, RHS_Token_Count);
+      Conflict : constant Parse_Action_Rec := (Reduce, Reduce_Production, RHS_Token_Count);
 
       Ref : constant Action_Arrays.Find_Reference_Constant_Type := State.Action_List.Find_Constant (Symbol);
 
@@ -269,6 +275,65 @@ package body WisiToken.Parse.LR is
    is begin
       State.Goto_List.Insert ((Symbol, To_State));
    end Add_Goto;
+
+   procedure Set_McKenzie_Options (Param : in out McKenzie_Param_Type; Config : in String)
+   is
+      use Ada.Characters.Handling;
+      use Ada.Strings.Fixed;
+      Name_First : Integer := Config'First;
+      Name_Last  : Integer;
+
+      Value_First : Integer;
+      Value_Last  : Integer;
+   begin
+      loop
+         Name_Last := Index (Config, "=", Name_First);
+         exit when Name_Last = 0;
+
+         Value_First := Name_Last + 1;
+         Name_Last   := Name_Last - 1;
+         Value_Last  := Index (Config, " ", Value_First);
+         if Value_Last = 0 then
+            Value_Last := Config'Last;
+         end if;
+         declare
+            Name : constant String := To_Lower (Config (Name_First .. Name_Last));
+
+            function Get_Value return Integer
+            is begin
+               return Integer'Value (Config (Value_First .. Value_Last));
+            exception
+            when Constraint_Error =>
+               raise User_Error with "expecting integer value, found '" &
+                 Config (Value_First .. Value_Last) & "'";
+            end Get_Value;
+
+            Value : constant Integer := Get_Value;
+         begin
+            --  Trace var alphabetical order
+            if Name = "check_delta_limit" or
+              Name = "check_delta"
+            then
+               Param.Check_Delta_Limit := Value;
+
+            elsif Name = "check_limit" then
+               Param.Check_Limit := Syntax_Trees.Sequential_Index (Value);
+
+            elsif Name = "enqueue_limit" then
+               Param.Enqueue_Limit := Value;
+
+            elsif Name = "zombie_limit" then
+               Param.Zombie_Limit := Value;
+
+            else
+               raise User_Error with "expecting McKenzie option name, found '" & Config (Name_First .. Name_Last) & "'";
+            end if;
+         end;
+
+         Name_First := Value_Last + 1;
+         exit when Name_First > Config'Last;
+      end loop;
+   end Set_McKenzie_Options;
 
    function Goto_For
      (Table : in Parse_Table;
@@ -300,6 +365,61 @@ package body WisiToken.Parse.LR is
 
       return Ref.Actions;
    end Action_For;
+
+   function Shift_State (Action_List : in Parse_Action_Node_Ptr) return State_Index
+   is begin
+      --  There can be only one shift action, and it is always first.
+      return Action_List.Item.State;
+   end Shift_State;
+
+   procedure Undo_Reduce
+     (Tree      : in out Syntax_Trees.Tree;
+      Table     : in     Parse_Table;
+      Stream    : in     Syntax_Trees.Stream_ID;
+      User_Data : in     Syntax_Trees.User_Data_Access_Constant)
+   is
+      --  We can't move this into Syntax_Trees, because we need Table to set
+      --  the stream element states.
+      use Syntax_Trees;
+   begin
+      if Tree.Has_Error (Tree.Get_Node (Stream, Tree.Peek (Stream))) then
+         --  Move the errors to the first terminal, so they are not lost.
+         declare
+            Ref : Stream_Node_Parents := Tree.To_Stream_Node_Parents
+              (Tree.To_Rooted_Ref (Stream, Tree.Peek (Stream)));
+
+            New_Errors : Error_Data_Lists.List;
+         begin
+            for Err of Tree.Error_List (Ref.Ref.Node) loop
+               New_Errors.Append (To_Message (Err, Tree, Ref.Ref.Node));
+            end loop;
+
+            Tree.First_Terminal (Ref, Following => False);
+            if Ref.Ref.Node = Invalid_Node_Access then
+               --  So far, we never put an error on an empty nonterm; we just delete
+               --  it.
+               raise SAL.Programmer_Error with "undo_reduce error on empty nonterm";
+            end if;
+            Tree.Add_Errors (Ref, New_Errors, User_Data);
+         end;
+      end if;
+
+      declare
+         Nonterm    : constant Node_Access := Tree.Pop (Stream);
+         Prev_State : State_Index          := Tree.State (Stream);
+      begin
+         for Child of Tree.Children (Nonterm) loop
+            Tree.Clear_Parent (Child, Clear_Children => Stream = Tree.Shared_Stream);
+
+            if Is_Terminal (Tree.ID (Child), Tree.Lexer.Descriptor.all) then
+               Prev_State := Shift_State (Action_For (Table, Prev_State, Tree.ID (Child)));
+            else
+               Prev_State := Goto_For (Table, Prev_State, Tree.ID (Child));
+            end if;
+            Tree.Push (Stream, Child, Prev_State);
+         end loop;
+      end;
+   end Undo_Reduce;
 
    function Expecting (Table : in Parse_Table; State : in State_Index) return Token_ID_Set
    is
@@ -336,11 +456,7 @@ package body WisiToken.Parse.LR is
       Free (Table);
    end Free_Table;
 
-   function Get_Text_Rep
-     (File_Name      : in String;
-      McKenzie_Param : in McKenzie_Param_Type;
-      Actions        : in Semantic_Action_Array_Arrays.Vector)
-     return Parse_Table_Ptr
+   function Get_Text_Rep (File_Name : in String) return Parse_Table_Ptr
    is
       use Ada.Text_IO;
 
@@ -371,7 +487,7 @@ package body WisiToken.Parse.LR is
             --  Buffer_Last on newline for Check_New_Line.
             Buffer_Last := Buffer_Last + 1;
          else
-            raise SAL.Programmer_Error with Error_Message
+            raise SAL.Programmer_Error with WisiToken.Error_Message
               (File_Name, 1, Ada.Text_IO.Count (Buffer_Last),
                "expecting semicolon, found '" & Buffer (Buffer_Last) & "'");
          end if;
@@ -392,7 +508,7 @@ package body WisiToken.Parse.LR is
                Buffer_Last := Buffer_Last + 1;
             end if;
          else
-            raise SAL.Programmer_Error with Error_Message
+            raise SAL.Programmer_Error with WisiToken.Error_Message
               (File_Name, 1, Ada.Text_IO.Count (Buffer_Last),
                "expecting new_line, found '" & Buffer (Buffer_Last) & "'");
          end if;
@@ -421,7 +537,7 @@ package body WisiToken.Parse.LR is
       procedure Raise_Gen_Next_Value_Constraint_Error (Name : String; Region : Buffer_Region)
       is begin
          --  Factored out from Gen_Next_Value to make Inline efficient.
-         raise SAL.Programmer_Error with Error_Message
+         raise SAL.Programmer_Error with WisiToken.Error_Message
            (File_Name, 1, Ada.Text_IO.Count (Region.First),
             "expecting " & Name & ", found '" & Buffer (Region.First .. Region.Last) & "'");
       end Raise_Gen_Next_Value_Constraint_Error;
@@ -446,7 +562,6 @@ package body WisiToken.Parse.LR is
       function Next_Token_ID is new Gen_Next_Value (Token_ID, "Token_ID");
       function Next_Integer is new Gen_Next_Value (Integer, "Integer");
       function Next_Parse_Action_Verbs is new Gen_Next_Value (Parse_Action_Verbs, "Parse_Action_Verbs");
-      function Next_Boolean is new Gen_Next_Value (Boolean, "Boolean");
       function Next_Count_Type is new Gen_Next_Value (Ada.Containers.Count_Type, "Count_Type");
    begin
       File            := GNATCOLL.Mmap.Open_Read (File_Name);
@@ -470,8 +585,6 @@ package body WisiToken.Parse.LR is
            (State_First, State_Last, First_Terminal, Last_Terminal, First_Nonterminal, Last_Nonterminal);
       begin
          Check_New_Line;
-
-         Table.McKenzie_Param := McKenzie_Param;
 
          for State of Table.States loop
             declare
@@ -504,18 +617,6 @@ package body WisiToken.Parse.LR is
                            Node_J.Item.State := Next_State_Index;
 
                         when Reduce | Accept_It =>
-                           if Next_Boolean then
-                              Node_J.Item.Action := Actions
-                                (Node_J.Item.Production.LHS)(Node_J.Item.Production.RHS).Action;
-                           else
-                              Node_J.Item.Action := null;
-                           end if;
-                           if Next_Boolean then
-                              Node_J.Item.Check := Actions
-                                (Node_J.Item.Production.LHS)(Node_J.Item.Production.RHS).Check;
-                           else
-                              Node_J.Item.Check := null;
-                           end if;
                            Node_J.Item.Token_Count := Next_Count_Type;
 
                         when Error =>
@@ -638,109 +739,31 @@ package body WisiToken.Parse.LR is
       raise;
 
    when E : others =>
-      raise SAL.Programmer_Error with Error_Message
+      raise SAL.Programmer_Error with WisiToken.Error_Message
         (File_Name, 1, Ada.Text_IO.Count (Buffer_Last),
          Ada.Exceptions.Exception_Name (E) & ": " & Ada.Exceptions.Exception_Message (E));
    end Get_Text_Rep;
 
-   function Compare (Left, Right : in Insert_Delete_Op) return SAL.Compare_Result
+   function Stack_Has
+     (Tree  : in Syntax_Trees.Tree;
+      Stack : in Recover_Stacks.Stack;
+      ID    : in Token_ID)
+     return Boolean
    is
-      Left_Token_Index : constant WisiToken.Token_Index :=
-        (case Insert_Delete_Op_Label'(Left.Op) is
-         when Insert => Left.Ins_Token_Index,
-         when Delete => Left.Del_Token_Index);
-      Right_Token_Index : constant WisiToken.Token_Index :=
-        (case Insert_Delete_Op_Label'(Right.Op) is
-         when Insert => Right.Ins_Token_Index,
-         when Delete => Right.Del_Token_Index);
+      use Recover_Stacks;
    begin
-      if Left_Token_Index < Right_Token_Index then
-         return SAL.Less;
-      elsif Left_Token_Index = Right_Token_Index then
-         return SAL.Equal;
-      else
-         return SAL.Greater;
-      end if;
-   end Compare;
-
-   function Equal (Left : in Config_Op; Right : in Insert_Op) return Boolean
-   is begin
-      return Left.Op = Insert and then
-        Left.Ins_ID = Right.Ins_ID and then
-        Left.Ins_Token_Index = Right.Ins_Token_Index;
-   end Equal;
-
-   function None (Ops : aliased in Config_Op_Arrays.Vector; Op : in Config_Op_Label) return Boolean
-   is
-      use Config_Op_Arrays, Config_Op_Array_Refs;
-   begin
-      for I in First_Index (Ops) .. Last_Index (Ops) loop
-         if Constant_Ref (Ops, I).Op = Op then
-            return False;
+      for I in 1 .. Depth (Stack) loop
+         if Tree.Element_ID (Peek (Stack, I).Token) = ID then
+            return True;
          end if;
       end loop;
-      return True;
-   end None;
-
-   function None_Since_FF (Ops : aliased in Config_Op_Arrays.Vector; Op : in Config_Op_Label) return Boolean
-   is
-      use Config_Op_Arrays, Config_Op_Array_Refs;
-   begin
-      for I in reverse First_Index (Ops) .. Last_Index (Ops) loop
-         declare
-            O : Config_Op renames Constant_Ref (Ops, I);
-         begin
-            exit when O.Op = Fast_Forward;
-            if O.Op = Op then
-               return False;
-            end if;
-         end;
-      end loop;
-      return True;
-   end None_Since_FF;
-
-   function Only_Since_FF (Ops : aliased in Config_Op_Arrays.Vector; Op : in Config_Op_Label) return Boolean
-   is
-      use Config_Op_Arrays, Config_Op_Array_Refs;
-      use all type Ada.Containers.Count_Type;
-   begin
-      if Length (Ops) = 0 or else Constant_Ref (Ops, Last_Index (Ops)).Op /= Op then
-         return False;
-      else
-         for I in reverse First_Index (Ops) .. Last_Index (Ops) loop
-            declare
-               O : Config_Op renames Constant_Ref (Ops, I);
-            begin
-               exit when O.Op = Fast_Forward;
-               if O.Op /= Op then
-                  return False;
-               end if;
-            end;
-         end loop;
-         return True;
-      end if;
-   end Only_Since_FF;
-
-   function Any (Ops : aliased in Config_Op_Arrays.Vector; Op : in Config_Op_Label) return Boolean
-   is
-      use Config_Op_Arrays, Config_Op_Array_Refs;
-   begin
-      for I in First_Index (Ops) .. Last_Index (Ops) loop
-         declare
-            O : Config_Op renames Constant_Ref (Ops, I);
-         begin
-            if O.Op = Op then
-               return True;
-            end if;
-         end;
-      end loop;
       return False;
-   end Any;
+   end Stack_Has;
 
    function Valid_Tree_Indices (Stack : in Recover_Stacks.Stack; Depth : in SAL.Base_Peek_Type) return Boolean
    is begin
       for I in 1 .. Depth loop
-         if Stack.Peek (I).Tree_Index = Invalid_Node_Index then
+         if Stack.Peek (I).Token.Virtual then
             return False;
          end if;
       end loop;

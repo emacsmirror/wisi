@@ -1,6 +1,6 @@
 ;;; wisi-run-indent-test.el --- utils for automating indentation and casing tests
 ;;
-;; Copyright (C) 2018 - 2020  Free Software Foundation, Inc.
+;; Copyright (C) 2018 - 2022  Free Software Foundation, Inc.
 ;;
 ;; This file is part of GNU Emacs.
 ;;
@@ -19,12 +19,20 @@
 
 (require 'wisi-tests)
 (require 'wisi-prj)
+(require 'wisi-process-parse)
 
 ;; user can set these to t in an EMACSCMD
 (defvar skip-cmds nil)
 (defvar skip-reindent-test nil)
 (defvar skip-recase-test nil)
 (defvar skip-write nil)
+
+(defvar save-parser-log nil
+  "If non-nil, a file name telling where to save wisi parser transaction log")
+
+(defvar save-edited-text nil
+  "If non-nil, a file name telling where to save wisi parser edited
+text, after each edit in an incremental parse, and before each partial parse.")
 
 (defun test-in-comment-p ()
   (nth 4 (syntax-ppss)))
@@ -44,7 +52,7 @@ FACE may be a list."
     (save-match-data
       (wisi-validate-cache (line-beginning-position) (line-end-position) nil 'face)
       (font-lock-ensure (line-beginning-position) (line-end-position)))
-    
+
     ;; We don't use face-at-point, because it doesn't respect
     ;; font-lock-face set by the parser! And we want to check for
     ;; conflicts between font-lock-keywords and the parser.
@@ -112,7 +120,7 @@ FACE may be a list."
     )))
 
 (defun test-cache-containing (containing contained)
-  "Test if CONTAINING in next code line has wisi-cache with that contains CONTAINED."
+  "Test if CONTAINING in next code line has wisi-cache that contains CONTAINED."
   (save-excursion
     (wisi-validate-cache (line-beginning-position 0) (line-end-position 3) nil 'navigate)
     (beginning-of-line)
@@ -136,201 +144,248 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 (defun test-refactor-1 (action inverse-action search-string refactor-string)
   (beginning-of-line)
   (forward-comment (point-max)) ;; forward-comment does not work from inside comment
-  (search-forward search-string (line-end-position 7))
+  (when search-string
+    (search-forward search-string (line-end-position 7)))
   (wisi-validate-cache (line-end-position -7) (line-end-position 7) t 'navigate)
   (search-forward refactor-string (line-end-position 7))
-  (let* ((edit-begin (match-beginning 0))
-	 (cache (wisi-goto-statement-start))
-	 (parse-begin (point))
-	 (parse-end (wisi-cache-end cache)))
-    (setq parse-end (+ parse-end (wisi-cache-last (wisi-get-cache (wisi-cache-end cache)))))
+  (let ((edit-begin (match-beginning 0)))
     (push (list
 	   inverse-action
-	   (copy-marker parse-begin nil)
-	   (copy-marker parse-end nil)
 	   (copy-marker edit-begin nil))
 	  test-refactor-markers)
-    (wisi-refactor wisi--parser action parse-begin parse-end edit-begin)
+    (wisi-refactor wisi-parser-shared action edit-begin)
     ))
 
 (defun test-refactor-inverse ()
   "Reverse refactors done by recent set of `test-refactor-1'."
+  ;; Force parse of forward refactor for partial parse
+  (wisi-validate-cache (line-end-position -7) (line-end-position 7) t 'navigate)
   (save-excursion
-    (condition-case-unless-debug nil
-	(dolist (item test-refactor-markers)
-	  (wisi-refactor wisi--parser
-			 (nth 0 item)
-			 (marker-position (nth 1 item))
-			 (marker-position (nth 2 item))
-			 (marker-position (nth 3 item))))
-      (error nil))
+    (dolist (item test-refactor-markers)
+      (wisi-refactor wisi-parser-shared
+		     (nth 0 item)
+		     (marker-position (nth 1 item))))
     (setq test-refactor-markers nil)))
+
+(defun wisi-test-save-log-1 (buffer log-file-name)
+    (with-current-buffer buffer
+      (message "saving parser transaction log '%s' to '%s'" (buffer-name) log-file-name)
+      (write-region nil nil log-file-name)))
+
+(defun wisi-test-save-log ()
+  (interactive)
+  (cond
+   ((stringp save-parser-log)
+    (when (buffer-live-p (wisi-parser-transaction-log-buffer wisi-parser-shared))
+      (wisi-test-save-log-1 (wisi-parser-transaction-log-buffer wisi-parser-shared) save-parser-log)))
+
+   (t ;; save-parser-log is a list of (LOG-BUFFER-NAME LOG-FILE-NAME)
+    (dolist (item save-parser-log)
+      (wisi-test-save-log-1 (get-buffer (nth 0 item)) (nth 1 item))))
+    ))
 
 (defun run-test-here ()
   "Run an indentation and casing test on the current buffer."
   (interactive)
-  (setq indent-tabs-mode nil)
-  (setq jit-lock-context-time 0.0);; for test-face
+  (condition-case-unless-debug err
+      (progn
+	(setq indent-tabs-mode nil)
+	(setq jit-lock-context-time 0.0);; for test-face
 
-  ;; Test files use wisi-prj-select-cached to parse and select a project file.
-  (setq project-find-functions (list #'wisi-prj-current-cached))
-  (setq xref-backend-functions (list #'wisi-prj-xref-backend))
+	;; Test files use wisi-prj-select-cached to parse and select a project file.
+	(setq project-find-functions (list #'wisi-prj-current-cached))
+	(setq xref-backend-functions (list #'wisi-prj-xref-backend))
 
+	(when (stringp save-edited-text)
+	  (wisi-process-parse-save-text wisi-parser-shared save-edited-text t))
 
-  (let ((error-count 0)
-	(test-buffer (current-buffer))
-	cmd-line
-	last-result last-cmd expected-result)
-    ;; Look for EMACS* comments in the file:
-    ;;
-    ;; EMACSCMD: <form>
-    ;;    Executes the lisp form inside a save-excursion, saves the result as a lisp object.
-    ;;
-    ;; EMACSRESULT: <form>
-    ;;    point is moved to end of line, <form> is evaluated inside
-    ;;    save-excursion and compared (using `equal') with the result
-    ;;    of the previous EMACSCMD, and the test fails if they don't
-    ;;    match.
-    ;;
-    ;; EMACSRESULT_START:<first list element>
-    ;; EMACSRESULT_ADD:  <list element>
-    ;; EMACSRESULT_FINISH:
-    ;;    build a list, compare it to the result of the previous EMACSCMD.
-    ;;
-    ;; EMACS_SKIP_UNLESS: <form>
-    ;;   skip entire test if form evals nil
-    ;;
-    ;; EMACSDEBUG: <form>
-    ;;    Eval form, display result. Also used for setting breakpoint.
+	(let ((error-count 0)
+	      (pass-count 0)
+	      (test-buffer (current-buffer))
+	      cmd-line
+	      last-result last-cmd expected-result force-fail)
+	  ;; Look for EMACS* comments in the file:
+	  ;;
+	  ;; EMACSCMD: <form>
+	  ;;    Executes the lisp form inside a save-excursion, saves the result as a lisp object.
+	  ;;
+	  ;; EMACSRESULT: <form>
+	  ;;    point is moved to end of line, <form> is evaluated inside
+	  ;;    save-excursion and compared (using `equal') with the result
+	  ;;    of the previous EMACSCMD, and the test fails if they don't
+	  ;;    match.
+	  ;;
+	  ;; EMACSRESULT_START:<first list element>
+	  ;; EMACSRESULT_ADD:  <list element>
+	  ;; EMACSRESULT_FINISH:
+	  ;;    build a list, compare it to the result of the previous EMACSCMD.
+	  ;;
+	  ;; EMACS_SKIP_UNLESS: <form>
+	  ;;   skip entire test if form evals nil
+	  ;;
+	  ;; EMACSDEBUG: <form>
+	  ;;    Eval form, display result. Also used for setting breakpoint.
 
-    (goto-char (point-min))
-    (while (and (not skip-cmds)
-		(re-search-forward (concat comment-start "EMACS\\([^:]+\\):") nil t))
-      (cond
-       ((string= (match-string 1) "CMD")
-	(looking-at ".*$")
-	(save-excursion
-	  (setq cmd-line (line-number-at-pos)
-		last-cmd (match-string 0)
-		last-result
-		(condition-case-unless-debug err
-		    (eval (car (read-from-string last-cmd)))
-		  (error
-		     (setq error-count (1+ error-count))
-		     (message "%s:%d: command: %s"
-			      (buffer-file-name) cmd-line last-cmd)
-		     (message "%s:%d: %s: %s"
-			      (buffer-file-name)
-			      (line-number-at-pos)
-			      (car err)
-			      (cdr err))))
-		)
-	  ;; save-excursion does not preserve mapping of buffer to
-	  ;; window, but some tests depend on that. For example,
-	  ;; execute-kbd-macro doesn’t work properly if current buffer
-	  ;; is not visible..
-	  (pop-to-buffer test-buffer)))
+	  (goto-char (point-min))
+	  (while (and (not skip-cmds)
+		      (re-search-forward (concat comment-start "EMACS\\([^:]+\\):") nil t))
+	    (cond
+	     ((string= (match-string 1) "CMD")
+	      (looking-at ".*$")
+	      (setq cmd-line (line-number-at-pos)
+		    last-cmd (match-string 0))
+	      (let ((msg (format "%s:%d: test %s" (buffer-file-name) cmd-line last-cmd)))
+		(wisi-parse-log-message wisi-parser-shared msg)
+		(message "%s" msg)
+		(save-excursion
+		  (setq last-result
+			(condition-case-unless-debug err
+			    (prog1
+			      (eval (car (read-from-string last-cmd)))
+			      (when (> wisi-debug 1)
+			        (setq msg (concat msg " ... done"))
+                                (wisi-parse-log-message wisi-parser-shared msg)
+                                (message msg)))
+			  ((error wisi-parse-error)
+			   (setq error-count (1+ error-count))
+			   (setq msg (concat msg " ... signaled"))
+			   (setq force-fail t)
+			   (wisi-parse-log-message wisi-parser-shared msg)
+			   (message msg)
+			   (setq msg (format "... %s: %s" (car err) (cdr err)))
+			   (wisi-parse-log-message wisi-parser-shared msg)
+			   (message msg)
+			   nil)))
+		  ))
+		;; save-excursion does not preserve mapping of buffer to
+		;; window, but some tests depend on that. For example,
+		;; execute-kbd-macro doesn’t work properly if current buffer
+		;; is not visible.
+		(pop-to-buffer test-buffer))
 
-       ((string= (match-string 1) "RESULT")
-	(looking-at ".*$")
-	(setq expected-result (save-excursion (end-of-line 1) (eval (car (read-from-string (match-string 0))))))
-	(unless (equal expected-result last-result)
-	  (setq error-count (1+ error-count))
-	  (message
-	   (concat
-	    (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
-	    (format "Result of '%s' does not match.\nGot    '%s',\nexpect '%s'"
-		    last-cmd
-		    last-result
-		    expected-result)
-	    ))))
+	     ((string= (match-string 1) "RESULT")
+	      (looking-at ".*$")
+	      (setq expected-result (save-excursion (end-of-line 1) (eval (car (read-from-string (match-string 0))))))
+	      (if (and (not force-fail)
+		       (equal expected-result last-result))
+		  (let ((msg (format "test passes %s:%d:\n" (buffer-file-name) (line-number-at-pos))))
+		    (setq pass-count (1+ pass-count))
+		    (wisi-parse-log-message wisi-parser-shared msg)
+		    (message msg))
 
-       ((string= (match-string 1) "RESULT_START")
-	(looking-at ".*$")
-	(setq expected-result (list (save-excursion (end-of-line 1) (eval (car (read-from-string (match-string 0))))))))
+		(setq error-count (1+ error-count))
 
-       ((string= (match-string 1) "RESULT_ADD")
-	(looking-at ".*$")
-	(let ((val (save-excursion (end-of-line 1)
-				   (eval (car (read-from-string (match-string 0)))))))
-	  (when val
-	    (setq expected-result (append expected-result (list val))))))
+		(let ((msg (concat
+			    (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
+			    (if force-fail
+				"... failed due to signal"
+			      (format "... result of '%s' does not match.\n... Got    '%s',\n... expect '%s'"
+				      last-cmd
+				      last-result
+				      expected-result)))))
+		  (wisi-parse-log-message wisi-parser-shared msg)
+		  (message "%s" msg))
+		(setq force-fail nil)))
 
-       ((string= (match-string 1) "RESULT_FINISH")
-	(unless (equal (length expected-result) (length last-result))
-	  (setq error-count (1+ error-count))
-	  (message
-	   (concat
-	    (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
-	    (format "Length of result of '%s' does not match.\nGot    '%s',\nexpect '%s'"
-		    last-cmd
-		    (length last-result)
-		    (length expected-result)))))
+	     ((string= (match-string 1) "RESULT_START")
+	      (looking-at ".*$")
+	      (setq expected-result
+		    (list (save-excursion (end-of-line 1) (eval (car (read-from-string (match-string 0))))))))
 
-	(let ((i 0))
-	  (while (< i (length expected-result))
-	    (unless (equal (nth i expected-result) (nth i last-result))
+	     ((string= (match-string 1) "RESULT_ADD")
+	      (looking-at ".*$")
+	      (let ((val (save-excursion (end-of-line 1)
+					 (eval (car (read-from-string (match-string 0)))))))
+		(when val
+		  (setq expected-result (append expected-result (list val))))))
+
+	     ((string= (match-string 1) "RESULT_FINISH")
+	      (unless (equal (length expected-result) (length last-result))
+		(setq error-count (1+ error-count))
+		;; this is used for gpr-query tests, not parser tests,
+		;; so we don't write to the parser log.
+		(message
+		 (concat
+		  (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
+		  (format "Length of result of '%s' does not match.\nGot    '%s',\nexpect '%s'"
+			  last-cmd
+			  (length last-result)
+			  (length expected-result)))))
+
+	      (let ((i 0))
+		(while (< i (length expected-result))
+		  (unless (equal (nth i expected-result) (nth i last-result))
+		    (setq error-count (1+ error-count))
+		    (message
+		     (concat
+		      (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
+		      (format "Nth (%d) result of '%s' does not match.\nGot    '%s',\nexpect '%s'"
+			      i
+			      last-cmd
+			      (nth i last-result)
+			      (nth i expected-result))
+		      )))
+		  (setq i (1+ i)))))
+
+	     ((string= (match-string 1) "_SKIP_UNLESS")
+	      (looking-at ".*$")
+	      (unless (eval (car (read-from-string (match-string 0))))
+		(setq skip-cmds t)
+		(setq skip-reindent-test t)
+		(setq skip-recase-test t)
+		;; We don’t set ‘skip-write’ t here, so the *.diff Make target succeeds.
+		))
+
+	     ((string= (match-string 1) "DEBUG")
+	      (looking-at ".*$")
+	      (message "DEBUG: %s:%d %s"
+		       (current-buffer)
+		       (line-number-at-pos)
+		       (save-excursion
+			 (eval (car (read-from-string (match-string 0)))))))
+
+	     (t
 	      (setq error-count (1+ error-count))
-	      (message
-	       (concat
-		(format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
-		(format "Nth (%d) result of '%s' does not match.\nGot    '%s',\nexpect '%s'"
-			i
-			last-cmd
-			(nth i last-result)
-			(nth i expected-result))
-		)))
-	    (setq i (1+ i)))))
+	      (error (concat "Unexpected EMACS test command " (match-string 1))))))
 
-       ((string= (match-string 1) "_SKIP_UNLESS")
-	(looking-at ".*$")
-	(unless (eval (car (read-from-string (match-string 0))))
-	  (setq skip-cmds t)
-	  (setq skip-reindent-test t)
-	  (setq skip-recase-test t)
-	  ;; We don’t set ‘skip-write’ t here, so the *.diff Make target succeeds.
-	  ))
+	  (let ((msg (format "%s:%d tests passed %d"
+			     (buffer-file-name) (line-number-at-pos (point)) pass-count)))
+	    (wisi-parse-log-message wisi-parser-shared msg)
+	    (message msg))
 
-       ((string= (match-string 1) "DEBUG")
-	(looking-at ".*$")
-	(message "DEBUG: %s:%d %s"
-		 (current-buffer)
-		 (line-number-at-pos)
-		 (save-excursion
-		  (eval (car (read-from-string (match-string 0)))))))
+	  (when (> error-count 0)
+	    (error
+	     "%s:%d: aborting due to previous errors (%d)"
+	     (buffer-file-name) (line-number-at-pos (point)) error-count))
+	  )
 
-       (t
-	(setq error-count (1+ error-count))
-	(error (concat "Unexpected EMACS test command " (match-string 1))))))
+	(unless skip-reindent-test
+	  ;; Reindent the buffer
+	  (message "indenting")
 
-    (when (> error-count 0)
-      (error
-       "%s:%d: aborting due to previous errors (%d)"
-       (buffer-file-name) (line-number-at-pos (point)) error-count))
-    )
+	  ;; first unindent; if the indentation rules do nothing, the test
+	  ;; would pass, otherwise!  Only unindent by 1 column, so comments
+	  ;; not currently in column 0 are still not in column 0, in case
+	  ;; the mode supports a special case for comments in column 0.
+	  (indent-rigidly (point-min) (point-max) -1)
 
-  (unless skip-reindent-test
-    ;; Reindent the buffer
-    (message "indenting")
+	  ;; indent-region uses save-excursion, so we can't goto an error location
+	  (indent-region (point-min) (point-max))
 
-    ;; first unindent; if the indentation rules do nothing, the test
-    ;; would pass, otherwise!  Only unindent by 1 column, so comments
-    ;; not currently in column 0 are still not in column 0, in case
-    ;; the mode supports a special case for comments in column 0.
-    (indent-rigidly (point-min) (point-max) -1)
+	  ;; Cleanup the buffer; indenting often leaves trailing whitespace;
+	  ;; files must be saved without any.
+	  (delete-trailing-whitespace)
+	  )
 
-    ;; indent-region uses save-excursion, so we can't goto an error location
-    (indent-region (point-min) (point-max))
+	(when (and wisi-auto-case (not skip-recase-test))
+	  (message "casing")
+	  (wisi-case-adjust-buffer))
 
-    ;; Cleanup the buffer; indenting often leaves trailing whitespace;
-    ;; files must be saved without any.
-    (delete-trailing-whitespace)
-    )
-
-  (when (and wisi-auto-case (not skip-recase-test))
-    (message "casing")
-    (wisi-case-adjust-buffer))
-  )
+	(wisi-test-save-log))
+    (error
+     (wisi-test-save-log)
+     (signal (car err) (cdr err)))
+    ))
 
 (defvar cl-print-readably); cl-print.el, used by edebug
 
@@ -343,13 +398,13 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
        (cons 'height 71) ;; characters
        (cons 'left 0) ;; pixels
        (cons 'top 0))))
-(define-key global-map "\C-cp" 'large-screen)
+(define-key global-map "\C-cp" 'large-frame)
 
 (defun run-test (file-name)
   "Run an indentation and casing test on FILE-NAME."
   (interactive "f")
 
-  (package-initialize) ;; for uniquify-files
+  (setq-default indent-tabs-mode nil) ;; no tab chars in files
 
   ;; Let edebug display strings full-length, and show internals of records
   (setq cl-print-readably t)
@@ -378,6 +433,9 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
   (setq xref-prompt-for-identifier nil)
 
   (let ((dir default-directory))
+    ;; Always wait for initial full parse to complete.
+    (setq wisi-parse-full-background nil)
+
     (find-file file-name) ;; sets default-directory
 
     (run-test-here)

@@ -2,7 +2,7 @@
 --
 --  Trace output to Ada.Text_IO
 --
---  Copyright (C) 2017, 2019, 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2017, 2019 - 2021 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -31,7 +31,8 @@ package WisiToken.Text_IO_Trace is
 
    overriding
    procedure Put_Line (Trace : in out Text_IO_Trace.Trace; Item : in String);
-   --  If Item contains ASCII.LF, Prefix is output after each one.
+   --  Prepend Prefix. If Item contains ASCII.LF, Prefix is also output
+   --  after each one.
 
    overriding
    procedure New_Line (Trace : in out Text_IO_Trace.Trace);

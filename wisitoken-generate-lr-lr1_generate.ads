@@ -25,6 +25,7 @@
 
 pragma License (Modified_GPL);
 
+with System.Multiprocessors;
 with WisiToken.Generate.LR1_Items;
 with WisiToken.Productions;
 package WisiToken.Generate.LR.LR1_Generate is
@@ -32,12 +33,18 @@ package WisiToken.Generate.LR.LR1_Generate is
    function Generate
      (Grammar               : in out WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor            : in     WisiToken.Descriptor;
-      Known_Conflicts       : in     Conflict_Lists.List := Conflict_Lists.Empty_List;
-      McKenzie_Param        : in     McKenzie_Param_Type := Default_McKenzie_Param;
-      Parse_Table_File_Name : in     String              := "";
-      Include_Extra         : in     Boolean             := False;
-      Ignore_Conflicts      : in     Boolean             := False;
-      Partial_Recursion     : in     Boolean             := True)
+      Grammar_File_Name     : in     String;
+      Known_Conflicts       : in     Conflict_Lists.Tree              := Conflict_Lists.Empty_Tree;
+      McKenzie_Param        : in     McKenzie_Param_Type              := Default_McKenzie_Param;
+      Max_Parallel          : in     SAL.Base_Peek_Type               := 15;
+      Parse_Table_File_Name : in     String                           := "";
+      Include_Extra         : in     Boolean                          := False;
+      Ignore_Conflicts      : in     Boolean                          := False;
+      Partial_Recursion     : in     Boolean                          := True;
+      Task_Count            : in     System.Multiprocessors.CPU_Range := 1;
+      Hash_Table_Size       : in     Positive                         := LR1_Items.Item_Set_Trees.Default_Rows;
+      Use_Cached_Recursions : in     Boolean                          := False;
+      Recursions            : in out WisiToken.Generate.Recursions)
      return Parse_Table_Ptr
    with Pre => Descriptor.First_Nonterminal = Descriptor.Accept_ID;
    --  Generate a generalized LR1 parse table for Grammar. The
@@ -56,36 +63,30 @@ package WisiToken.Generate.LR.LR1_Generate is
    --
    --  Unless Ignore_Unknown_Conflicts is True, raise Grammar_Error if there
    --  are unknown conflicts.
+   --
+   --  Use Task_Count tasks in computing LR1 items. Default is 1 so unit
+   --  tests return repeatable results.
 
    ----------
    --  visible for unit test
 
-   function LR1_Goto_Transitions
-     (Set                     : in LR1_Items.Item_Set;
-      Symbol                  : in Token_ID;
-      Has_Empty_Production    : in Token_ID_Set;
-      First_Terminal_Sequence : in Token_Sequence_Arrays.Vector;
-      Grammar                 : in WisiToken.Productions.Prod_Arrays.Vector;
-      Descriptor              : in WisiToken.Descriptor)
-     return LR1_Items.Item_Set;
-   --  'goto' from [dragon] algorithm 4.9
-
-   function LR1_Item_Sets
+   function LR1_Item_Sets_Single
      (Has_Empty_Production    : in Token_ID_Set;
       First_Terminal_Sequence : in Token_Sequence_Arrays.Vector;
       Grammar                 : in WisiToken.Productions.Prod_Arrays.Vector;
-      Descriptor              : in WisiToken.Descriptor)
+      Descriptor              : in WisiToken.Descriptor;
+      Hash_Table_Size         : in Positive := LR1_Items.Item_Set_Trees.Default_Rows)
      return LR1_Items.Item_Set_List;
-   --  [dragon] algorithm 4.9 pg 231; figure 4.38 pg 232; procedure "items"
+   --  [dragon] algorithm 4.9 pg 231; figure 4.38 pg 232; procedure "items", no tasking
 
-   procedure Add_Actions
-     (Item_Sets            : in     LR1_Items.Item_Set_List;
-      Grammar              : in     WisiToken.Productions.Prod_Arrays.Vector;
-      Has_Empty_Production : in     Token_ID_Set;
-      First_Nonterm_Set    : in     Token_Array_Token_Set;
-      Conflict_Counts      :    out Conflict_Count_Lists.List;
-      Conflicts            :    out Conflict_Lists.List;
-      Table                : in out Parse_Table;
-      Descriptor           : in     WisiToken.Descriptor);
+   function LR1_Item_Sets_Parallel
+     (Has_Empty_Production    : in Token_ID_Set;
+      First_Terminal_Sequence : in Token_Sequence_Arrays.Vector;
+      Grammar                 : in WisiToken.Productions.Prod_Arrays.Vector;
+      Descriptor              : in WisiToken.Descriptor;
+      Task_Count              : in System.Multiprocessors.CPU_Range;
+      Hash_Table_Size         : in Positive := LR1_Items.Item_Set_Trees.Default_Rows)
+     return LR1_Items.Item_Set_List;
+   --  With tasking; used if State_Count known.
 
 end WisiToken.Generate.LR.LR1_Generate;

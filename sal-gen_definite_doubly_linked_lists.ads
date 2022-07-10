@@ -33,10 +33,10 @@ package SAL.Gen_Definite_Doubly_Linked_Lists is
 
    type List is new Ada.Finalization.Controlled with private
    with
-      Constant_Indexing => Constant_Reference,
-      Variable_Indexing => Variable_Reference,
-      Default_Iterator  => Iterate,
-      Iterator_Element  => Element_Type;
+     Constant_Indexing => Constant_Reference,
+     Variable_Indexing => Variable_Reference,
+     Default_Iterator  => Iterate,
+     Iterator_Element  => Element_Type;
 
    type List_Access_Constant is access constant List;
    for List_Access_Constant'Storage_Size use 0;

@@ -54,27 +54,6 @@ package SAL.Gen_Unbounded_Definite_Queues is
    --
    --  Raise Container_Empty if Is_Empty.
 
-   type Constant_Reference_Type (Element : not null access constant Element_Type) is private
-   with
-      Implicit_Dereference => Element;
-
-   function Peek (Queue : in Pkg.Queue; N : Peek_Type := 1) return Constant_Reference_Type;
-   pragma Inline (Peek);
-   --  Return a constant reference to a queue item. N = 1 is the queue
-   --  head.
-   --
-   --  Raise Parameter_Error if N > Count
-
-   type Variable_Reference_Type (Element : not null access Element_Type) is private
-   with Implicit_Dereference => Element;
-
-   function Variable_Peek (Queue : in out Pkg.Queue; N : Peek_Type := 1) return Variable_Reference_Type;
-   pragma Inline (Variable_Peek);
-   --  Return a variable reference to a queue item. N = 1 is the queue
-   --  head.
-   --
-   --  Raises Parameter_Error if N > Count
-
    procedure Add (Queue : in out Pkg.Queue; Item : in Element_Type);
    --  Add Element to the tail/back of Queue.
 
@@ -93,16 +72,6 @@ private
    type Queue is tagged record
       Data : Element_Lists.List;
       --  Add at Tail/Back = Last, remove at Head/Front = First.
-   end record;
-
-   type Constant_Reference_Type (Element : not null access constant Element_Type) is
-   record
-      Dummy : Integer := raise Program_Error with "uninitialized reference";
-   end record;
-
-   type Variable_Reference_Type (Element : not null access Element_Type) is
-   record
-      Dummy : Integer := raise Program_Error with "uninitialized reference";
    end record;
 
    Empty_Queue : constant Queue := (Data => Element_Lists.Empty_List);

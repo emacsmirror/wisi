@@ -92,6 +92,11 @@ package SAL.Gen_Unbounded_Definite_Stacks is
    --
    --  Raises Container_Empty if Is_Empty.
 
+   procedure Bottom_Pop (Stack : in out Sguds.Stack)
+   with Pre => Stack.Depth >= 1;
+   --  Remove one item from the bottom of the stack (element
+   --  Stack.Depth), discard it.
+
    procedure Set_Depth
      (Stack : in out Sguds.Stack;
       Depth : in     Peek_Type);
@@ -111,6 +116,20 @@ package SAL.Gen_Unbounded_Definite_Stacks is
    --  Stack must have been initialized by Set_Depth.
    --
    --  Useful when creating a stack from pre-existing data.
+
+   function Invert (Stack : in Sguds.Stack) return Sguds.Stack;
+   --  Return a new stack with the same elements as Stack, in inverted order.
+
+   procedure Copy_Slice
+     (Source             : in     Stack;
+      Target             : in out Stack;
+      Source_Start_Depth : in     Peek_Type;
+      Target_Start_Depth : in     Peek_Type;
+      Count              : in     Peek_Type);
+   --  Copy elements Source.Peek (Source_Start_Depth) .. Source.Peek
+   --  (Source_Start_Depth - Count + 1) to Target (Target_Start_Depth) ..
+   --  Target (Target_Start_Depth - Count + 1), overwriting existing
+   --  Target elements.
 
    type Constant_Reference_Type (Element : not null access constant Element_Type) is private with
      Implicit_Dereference => Element;
@@ -145,7 +164,7 @@ private
       Top  : Base_Peek_Type := Invalid_Peek_Index; -- empty
       Data : Element_Array_Access;
 
-      --  Top of stack is at Data (Top).
+      --  Top of stack is at Data (Top); bottom at Data (1).
       --  Data (1 .. Top) has been set at some point.
    end record;
 

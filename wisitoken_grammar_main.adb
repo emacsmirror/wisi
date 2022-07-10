@@ -1,8 +1,8 @@
---  generated parser support file.
+--  generated parser support file. -*- buffer-read-only:t  -*-
 --  command line: wisitoken-bnf-generate.exe  --generate LALR Ada re2c wisitoken_grammar.wy
 --
 
---  Copyright (C) 2017 - 2019 Free Software Foundation, Inc.
+--  Copyright (C) 2017 - 2022 Free Software Foundation, Inc.
 --
 --  Author: Stephen Leake <stephe-leake@stephe-leake.org>
 --
@@ -21,642 +21,1015 @@
 --  You should have received a copy of the GNU General Public License
 --  along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
-with Wisitoken_Grammar_Actions; use Wisitoken_Grammar_Actions;
+with SAL;
 with WisiToken.Lexer.re2c;
 with wisitoken_grammar_re2c_c;
+with Wisitoken_Grammar_Actions; use Wisitoken_Grammar_Actions;
 package body Wisitoken_Grammar_Main is
+
+   function Is_Block_Delimited (ID : in WisiToken.Token_ID) return Boolean
+   is begin
+      case To_Token_Enum (ID) is
+      when
+         COMMENT_ID |
+         RAW_CODE_ID |
+         REGEXP_ID |
+         ACTION_ID |
+         STRING_LITERAL_1_ID |
+         STRING_LITERAL_2_ID => return True;
+      when others => return False;
+      end case;
+   end Is_Block_Delimited;
+
+   function Same_Block_Delimiters (ID : in WisiToken.Token_ID) return Boolean
+   is begin
+      case To_Token_Enum (ID) is
+      when COMMENT_ID => return False;
+      when RAW_CODE_ID => return False;
+      when REGEXP_ID => return False;
+      when ACTION_ID => return False;
+      when STRING_LITERAL_1_ID => return True;
+      when STRING_LITERAL_2_ID => return True;
+      when others => return False;
+      end case;
+   end Same_Block_Delimiters;
+
+   function Escape_Delimiter_Doubled (ID : in WisiToken.Token_ID) return Boolean
+   is begin
+      case To_Token_Enum (ID) is
+      when others => return False;
+      end case;
+   end Escape_Delimiter_Doubled;
+
+   function Start_Delimiter_Length (ID : in WisiToken.Token_ID) return Integer
+   is begin
+      case To_Token_Enum (ID) is
+      when COMMENT_ID => return 2;
+      when RAW_CODE_ID => return 2;
+      when REGEXP_ID => return 2;
+      when ACTION_ID => return 2;
+      when STRING_LITERAL_1_ID => return 1;
+      when STRING_LITERAL_2_ID => return 1;
+      when others => raise SAL.Programmer_Error; return 0;
+      end case;
+   end Start_Delimiter_Length;
+
+   function End_Delimiter_Length (ID : in WisiToken.Token_ID) return Integer
+   is begin
+      case To_Token_Enum (ID) is
+      when
+         COMMENT_ID |
+         STRING_LITERAL_1_ID |
+         STRING_LITERAL_2_ID => return 1;
+      when RAW_CODE_ID => return 2;
+      when REGEXP_ID => return 2;
+      when ACTION_ID => return 2;
+      when others => raise SAL.Programmer_Error; return 0;
+      end case;
+   end End_Delimiter_Length;
+
+   function New_Line_Is_End_Delimiter (ID : in WisiToken.Token_ID) return Boolean
+   is begin
+      return
+        (case To_Token_Enum (ID) is
+         when COMMENT_ID => True,
+         when RAW_CODE_ID => False,
+         when REGEXP_ID => False,
+         when ACTION_ID => False,
+         when STRING_LITERAL_1_ID => True,
+         when STRING_LITERAL_2_ID => True,
+         when others => raise SAL.Programmer_Error);
+   end New_Line_Is_End_Delimiter;
+
+   function Find_End_Delimiter
+     (Source      : in WisiToken.Lexer.Source;
+      ID          : in WisiToken.Token_ID;
+      Token_Start : in WisiToken.Buffer_Pos)
+     return WisiToken.Buffer_Pos
+   is begin
+      return
+        (case To_Token_Enum (ID) is
+         when COMMENT_ID => WisiToken.Lexer.Find_New_Line (Source, Token_Start),
+         when RAW_CODE_ID => WisiToken.Lexer.Find_String (Source, Token_Start, "}%"),
+         when REGEXP_ID => WisiToken.Lexer.Find_String (Source, Token_Start, "]%"),
+         when ACTION_ID => WisiToken.Lexer.Find_String (Source, Token_Start, ")%"),
+         when STRING_LITERAL_1_ID => WisiToken.Lexer.Find_String_Or_New_Line (Source, Token_Start, """"),
+         when STRING_LITERAL_2_ID => WisiToken.Lexer.Find_String_Or_New_Line (Source, Token_Start, """"),
+         when others => raise SAL.Programmer_Error);
+   end Find_End_Delimiter;
+
+   function Find_Scan_End
+     (Source   : in WisiToken.Lexer.Source;
+      ID       : in WisiToken.Token_ID;
+      Region   : in WisiToken.Buffer_Region;
+      Inserted : in Boolean;
+      Start    : in Boolean)
+     return WisiToken.Buffer_Pos
+   is
+      use WisiToken;
+   begin
+      return
+        (case To_Token_Enum (ID) is
+         when COMMENT_ID =>
+         (if Inserted then Region.Last
+          elsif Start then Region.Last
+          else Lexer.Find_New_Line (Source, Region.Last)),
+         when RAW_CODE_ID =>
+         (if Inserted then Region.Last
+          elsif Start then Region.Last
+          else Lexer.Find_String (Source, Region.First, "}%")),
+         when REGEXP_ID =>
+         (if Inserted then Region.Last
+          elsif Start then Region.Last
+          else Lexer.Find_String (Source, Region.First, "]%")),
+         when ACTION_ID =>
+         (if Inserted then Region.Last
+          elsif Start then Region.Last
+          else Lexer.Find_String (Source, Region.First, ")%")),
+         when STRING_LITERAL_1_ID => Lexer.Find_New_Line (Source, Region.Last),
+         when STRING_LITERAL_2_ID => Lexer.Find_New_Line (Source, Region.Last),
+         when others => raise SAL.Programmer_Error);
+   end Find_Scan_End;
+
+   function Contains_End_Delimiter
+     (Source : in WisiToken.Lexer.Source;
+      ID     : in WisiToken.Token_ID;
+      Region : in WisiToken.Buffer_Region)
+     return WisiToken.Base_Buffer_Pos
+   is
+      use WisiToken;
+   begin
+      return
+        (case To_Token_Enum (ID) is
+         when COMMENT_ID => Lexer.Find_New_Line (Source, Region),
+         when RAW_CODE_ID => Lexer.Find_String_Or_New_Line (Source, Region, "}%"),
+         when REGEXP_ID => Lexer.Find_String_Or_New_Line (Source, Region, "]%"),
+         when ACTION_ID => Lexer.Find_String_Or_New_Line (Source, Region, ")%"),
+         when STRING_LITERAL_1_ID => Lexer.Find_String_Or_New_Line (Source, Region, """"),
+         when STRING_LITERAL_2_ID => Lexer.Find_String_Or_New_Line (Source, Region, "'"),
+         when others => raise SAL.Programmer_Error);
+   end Contains_End_Delimiter;
+
+   function Line_Begin_Char_Pos
+    (Source : in WisiToken.Lexer.Source;
+     Token  : in WisiToken.Lexer.Token;
+     Line   : in WisiToken.Line_Number_Type)
+   return WisiToken.Buffer_Pos
+   is
+      use all type WisiToken.Base_Buffer_Pos;
+   begin
+      case To_Token_Enum (Token.ID) is
+      when NEW_LINE_ID => return Token.Char_Region.Last + 1;
+      when COMMENT_ID => return Token.Char_Region.Last + 1;
+      when RAW_CODE_ID => return WisiToken.Lexer.Line_Begin_Char_Pos (Source, Token, Line);
+      when REGEXP_ID => return WisiToken.Lexer.Line_Begin_Char_Pos (Source, Token, Line);
+      when ACTION_ID => return WisiToken.Lexer.Line_Begin_Char_Pos (Source, Token, Line);
+      when others => raise SAL.Programmer_Error;
+      end case;
+   end Line_Begin_Char_Pos;
+
+   function Can_Contain_New_Line (ID : in WisiToken.Token_ID) return Boolean
+   is begin
+      case To_Token_Enum (ID) is
+      when NEW_LINE_ID => return True;
+      when COMMENT_ID => return True;
+      when RAW_CODE_ID => return True;
+      when REGEXP_ID => return True;
+      when ACTION_ID => return True;
+      when others => return False;
+      end case;
+   end Can_Contain_New_Line;
+
+   function Terminated_By_New_Line (ID : in WisiToken.Token_ID) return Boolean
+   is begin
+      case To_Token_Enum (ID) is
+      when NEW_LINE_ID => return True;
+      when COMMENT_ID => return True;
+      when STRING_LITERAL_1_ID => return True;
+      when STRING_LITERAL_2_ID => return True;
+      when others => return False;
+      end case;
+   end Terminated_By_New_Line;
 
    package Lexer is new WisiToken.Lexer.re2c
      (wisitoken_grammar_re2c_c.New_Lexer,
       wisitoken_grammar_re2c_c.Free_Lexer,
       wisitoken_grammar_re2c_c.Reset_Lexer,
-      wisitoken_grammar_re2c_c.Next_Token);
+      wisitoken_grammar_re2c_c.Set_Verbosity,
+      wisitoken_grammar_re2c_c.Set_Position,
+      wisitoken_grammar_re2c_c.Next_Token,
+      Is_Block_Delimited,
+      Same_Block_Delimiters,
+      Escape_Delimiter_Doubled,
+      Start_Delimiter_Length,
+      End_Delimiter_Length,
+      New_Line_Is_End_Delimiter,
+      Find_End_Delimiter,
+      Contains_End_Delimiter,
+      Find_Scan_End,
+      Line_Begin_Char_Pos,
+      Can_Contain_New_Line,
+      Terminated_By_New_Line);
 
-   procedure Create_Parser
-     (Parser                         :    out WisiToken.Parse.LR.Parser_No_Recover.Parser;
-      Trace                        : not null access WisiToken.Trace'Class;
-      User_Data                    : in     WisiToken.Syntax_Trees.User_Data_Access)
+   function Create_Parse_Table
+     return WisiToken.Parse.LR.Parse_Table_Ptr
    is
       use WisiToken.Parse.LR;
       Table : constant Parse_Table_Ptr := new Parse_Table
         (State_First       => 0,
-         State_Last        => 102,
+         State_Last        => 145,
          First_Terminal    => 3,
-         Last_Terminal     => 36,
-         First_Nonterminal => 37,
-         Last_Nonterminal  => 56);
+         Last_Terminal     => 42,
+         First_Nonterminal => 43,
+         Last_Nonterminal  => 66);
    begin
       declare
          procedure Subr_1
          is begin
             Table.States (0).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (0), 23, (38, 0), 1);
-            Add_Action (Table.States (0), 33, (43, 0), 2);
+            Add_Action (Table.States (0), 30, (48, 0), 1);
+            Add_Action (Table.States (0), 39, (53, 0), 2);
             Table.States (0).Goto_List.Set_Capacity (4);
-            Add_Goto (Table.States (0), 38, 3);
-            Add_Goto (Table.States (0), 43, 4);
-            Add_Goto (Table.States (0), 55, 5);
-            Add_Goto (Table.States (0), 56, 6);
-            Table.States (1).Action_List.Set_Capacity (7);
-            Add_Action (Table.States (1), 3, (38, 1), 7);
-            Add_Action (Table.States (1), 4, (38, 5), 8);
-            Add_Action (Table.States (1), 5, (38, 4), 9);
-            Add_Action (Table.States (1), 6, (39, 0), 10);
-            Add_Action (Table.States (1), 7, (39, 1), 11);
-            Add_Action (Table.States (1), 8, (39, 2), 12);
-            Add_Action (Table.States (1), 33, (38, 2), 13);
-            Table.States (1).Goto_List.Set_Capacity (1);
-            Add_Goto (Table.States (1), 39, 14);
+            Add_Goto (Table.States (0), 48, 3);
+            Add_Goto (Table.States (0), 53, 4);
+            Add_Goto (Table.States (0), 65, 5);
+            Add_Goto (Table.States (0), 66, 6);
+            Table.States (1).Action_List.Set_Capacity (10);
+            Add_Action (Table.States (1), 4, (48, 6), 7);
+            Add_Action (Table.States (1), 5, (48, 7), 8);
+            Add_Action (Table.States (1), 6, (48, 8), 9);
+            Add_Action (Table.States (1), 7, (48, 15), 10);
+            Add_Action (Table.States (1), 8, (48, 13), 11);
+            Add_Action (Table.States (1), 9, (48, 11), 12);
+            Add_Action (Table.States (1), 11, (48, 5), 13);
+            Add_Action (Table.States (1), 12, (48, 2), 14);
+            Add_Action (Table.States (1), 16, (48, 0), 15);
+            Add_Action (Table.States (1), 39, (48, 9), 16);
             Table.States (2).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (2), 13, (43, 0), 15);
-            Add_Action (Table.States (2), 14, (43, 1), 16);
+            Add_Action (Table.States (2), 21, (53, 0), 17);
+            Add_Action (Table.States (2), 22, (53, 1), 18);
             Table.States (3).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (3), (23, 33, 36), (55, 0),  1, null, null);
+            Add_Action (Table.States (3), (30, 39, 42), (65, 0),  1);
             Table.States (4).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (4), (23, 33, 36), (55, 1),  1, null, null);
+            Add_Action (Table.States (4), (30, 39, 42), (65, 1),  1);
             Table.States (5).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (5), (23, 33, 36), (56, 0),  1, null, null);
+            Add_Action (Table.States (5), (30, 39, 42), (66, 0),  1);
             Table.States (6).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (6), 23, (38, 0), 1);
-            Add_Action (Table.States (6), 33, (43, 0), 2);
-            Add_Action (Table.States (6), 36, Accept_It, (37, 0),  1, null, null);
+            Add_Action (Table.States (6), 30, (48, 0), 1);
+            Add_Action (Table.States (6), 39, (53, 0), 2);
+            Add_Action (Table.States (6), 42, Accept_It, (43, 0),  1);
             Table.States (6).Goto_List.Set_Capacity (3);
-            Add_Goto (Table.States (6), 38, 3);
-            Add_Goto (Table.States (6), 43, 4);
-            Add_Goto (Table.States (6), 55, 17);
+            Add_Goto (Table.States (6), 48, 3);
+            Add_Goto (Table.States (6), 53, 4);
+            Add_Goto (Table.States (6), 65, 19);
             Table.States (7).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (7), 33, (40, 0), 18);
+            Add_Action (Table.States (7), 39, (49, 0), 20);
             Table.States (7).Goto_List.Set_Capacity (1);
-            Add_Goto (Table.States (7), 40, 19);
-            Table.States (8).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (8), 5, (38, 5), 20);
-            Table.States (9).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (9), 33, (38, 4), 21);
+            Add_Goto (Table.States (7), 49, 21);
+            Table.States (8).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (8), 3, (45, 2), 22);
+            Add_Action (Table.States (8), 14, (45, 1), 23);
+            Add_Action (Table.States (8), 15, (45, 0), 24);
+            Add_Action (Table.States (8), 39, (45, 3), 25);
+            Table.States (8).Goto_List.Set_Capacity (2);
+            Add_Goto (Table.States (8), 45, 26);
+            Add_Goto (Table.States (8), 46, 27);
+            Table.States (9).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (9), 3, (45, 2), 22);
+            Add_Action (Table.States (9), 14, (45, 1), 23);
+            Add_Action (Table.States (9), 15, (45, 0), 24);
+            Add_Action (Table.States (9), 39, (45, 3), 25);
+            Table.States (9).Goto_List.Set_Capacity (2);
+            Add_Goto (Table.States (9), 45, 26);
+            Add_Goto (Table.States (9), 46, 28);
             Table.States (10).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (10), (1 =>  33), (39, 0),  1, null, null);
+            Add_Action (Table.States (10), 9, (48, 15), 29);
             Table.States (11).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (11), 21, (39, 1), 22);
+            Add_Action (Table.States (11), 39, (48, 13), 30);
             Table.States (12).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (12), 21, (39, 2), 23);
-            Table.States (13).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (13), 8, (42, 10), 24);
-            Add_Action (Table.States (13), 10, (42, 5), 25);
-            Add_Action (Table.States (13), 15, (42, 0), 26);
-            Add_Action (Table.States (13), 16, (42, 2), 27);
-            Add_Action (Table.States (13), 20, (42, 3), 28);
-            Add_Action (Table.States (13), 23, Reduce, (38, 3),  2, declaration_3'Access, null);
-            Add_Action (Table.States (13), 28, (42, 6), 29);
-            Add_Action (Table.States (13), 30, (42, 7), 30);
-            Add_Action (Table.States (13), 32, (42, 4), 31);
-            Add_Action (Table.States (13), 33, (42, 1), 32);
-            Add_Conflict (Table.States (13), 33, (38, 3),  2, declaration_3'Access, null);
-            Add_Action (Table.States (13), 34, (42, 8), 33);
-            Add_Action (Table.States (13), 35, (42, 9), 34);
-            Add_Action (Table.States (13), 36, Reduce, (38, 3),  2, declaration_3'Access, null);
-            Table.States (13).Goto_List.Set_Capacity (2);
-            Add_Goto (Table.States (13), 41, 35);
-            Add_Goto (Table.States (13), 42, 36);
+            Add_Action (Table.States (12), 39, (48, 11), 31);
+            Table.States (13).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (13), 39, (48, 5), 32);
             Table.States (14).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (14), 33, (38, 0), 37);
-            Table.States (15).Action_List.Set_Capacity (10);
-            Add_Action (Table.States (15), 12, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (15), 18, (53, 0), 38);
-            Add_Action (Table.States (15), 19, (52, 0), 39);
-            Add_Action (Table.States (15), 20, (51, 0), 40);
-            Add_Action (Table.States (15), 21, (47, 0), 41);
-            Add_Action (Table.States (15), 23, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (15), 29, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (15), 33, (48, 1), 42);
-            Add_Conflict (Table.States (15), 33, (46, 0),  0, null, null);
-            Add_Action (Table.States (15), 35, (50, 1), 43);
-            Add_Action (Table.States (15), 36, Reduce, (46, 0),  0, null, null);
-            Table.States (15).Goto_List.Set_Capacity (9);
-            Add_Goto (Table.States (15), 45, 44);
-            Add_Goto (Table.States (15), 46, 45);
-            Add_Goto (Table.States (15), 47, 46);
-            Add_Goto (Table.States (15), 48, 47);
-            Add_Goto (Table.States (15), 49, 48);
-            Add_Goto (Table.States (15), 50, 49);
-            Add_Goto (Table.States (15), 51, 50);
-            Add_Goto (Table.States (15), 52, 51);
-            Add_Goto (Table.States (15), 53, 52);
-            Table.States (16).Action_List.Set_Capacity (10);
-            Add_Action (Table.States (16), 12, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (16), 18, (53, 0), 38);
-            Add_Action (Table.States (16), 19, (52, 0), 39);
-            Add_Action (Table.States (16), 20, (51, 0), 40);
-            Add_Action (Table.States (16), 21, (47, 0), 41);
-            Add_Action (Table.States (16), 23, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (16), 29, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (16), 33, (48, 1), 42);
-            Add_Conflict (Table.States (16), 33, (46, 0),  0, null, null);
-            Add_Action (Table.States (16), 35, (50, 1), 43);
-            Add_Action (Table.States (16), 36, Reduce, (46, 0),  0, null, null);
-            Table.States (16).Goto_List.Set_Capacity (9);
-            Add_Goto (Table.States (16), 45, 53);
-            Add_Goto (Table.States (16), 46, 45);
-            Add_Goto (Table.States (16), 47, 46);
-            Add_Goto (Table.States (16), 48, 47);
-            Add_Goto (Table.States (16), 49, 48);
-            Add_Goto (Table.States (16), 50, 49);
-            Add_Goto (Table.States (16), 51, 50);
-            Add_Goto (Table.States (16), 52, 51);
-            Add_Goto (Table.States (16), 53, 52);
-            Table.States (17).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (17), (23, 33, 36), (56, 1),  2, null, null);
-            Table.States (18).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (18), (9, 33), (40, 0),  1, null, null);
-            Table.States (19).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (19), 9, (38, 1), 54);
-            Add_Action (Table.States (19), 33, (40, 1), 55);
-            Table.States (20).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (20), (23, 33, 36), (38, 5),  3, declaration_5'Access, null);
-            Table.States (21).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (21), 16, (38, 4), 56);
+            Add_Action (Table.States (14), 28, (48, 2), 33);
+            Table.States (15).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (15), 28, (48, 0), 34);
+            Table.States (16).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (16), 18, (44, 0), 35);
+            Add_Action (Table.States (16), 30, Reduce, (48, 10),  2);
+            Add_Action (Table.States (16), 38, (51, 1), 36);
+            Add_Action (Table.States (16), 39, (51, 0), 37);
+            Add_Conflict (Table.States (16), 39, (48, 10),  2);
+            Add_Action (Table.States (16), 40, (44, 1), 38);
+            Add_Action (Table.States (16), 41, (44, 2), 39);
+            Add_Action (Table.States (16), 42, Reduce, (48, 10),  2);
+            Table.States (16).Goto_List.Set_Capacity (3);
+            Add_Goto (Table.States (16), 44, 40);
+            Add_Goto (Table.States (16), 51, 41);
+            Add_Goto (Table.States (16), 52, 42);
+            Table.States (17).Action_List.Set_Capacity (10);
+            Add_Action (Table.States (17), 20, Reduce, (56, 0),  0);
+            Add_Action (Table.States (17), 25, (63, 0), 43);
+            Add_Action (Table.States (17), 26, (62, 0), 44);
+            Add_Action (Table.States (17), 27, (61, 0), 45);
+            Add_Action (Table.States (17), 28, (57, 0), 46);
+            Add_Action (Table.States (17), 30, Reduce, (56, 0),  0);
+            Add_Action (Table.States (17), 36, Reduce, (56, 0),  0);
+            Add_Action (Table.States (17), 39, (58, 1), 47);
+            Add_Conflict (Table.States (17), 39, (56, 0),  0);
+            Add_Action (Table.States (17), 41, (60, 1), 48);
+            Add_Action (Table.States (17), 42, Reduce, (56, 0),  0);
+            Table.States (17).Goto_List.Set_Capacity (9);
+            Add_Goto (Table.States (17), 55, 49);
+            Add_Goto (Table.States (17), 56, 50);
+            Add_Goto (Table.States (17), 57, 51);
+            Add_Goto (Table.States (17), 58, 52);
+            Add_Goto (Table.States (17), 59, 53);
+            Add_Goto (Table.States (17), 60, 54);
+            Add_Goto (Table.States (17), 61, 55);
+            Add_Goto (Table.States (17), 62, 56);
+            Add_Goto (Table.States (17), 63, 57);
+            Table.States (18).Action_List.Set_Capacity (10);
+            Add_Action (Table.States (18), 20, Reduce, (56, 0),  0);
+            Add_Action (Table.States (18), 25, (63, 0), 43);
+            Add_Action (Table.States (18), 26, (62, 0), 44);
+            Add_Action (Table.States (18), 27, (61, 0), 45);
+            Add_Action (Table.States (18), 28, (57, 0), 46);
+            Add_Action (Table.States (18), 30, Reduce, (56, 0),  0);
+            Add_Action (Table.States (18), 36, Reduce, (56, 0),  0);
+            Add_Action (Table.States (18), 39, (58, 1), 47);
+            Add_Conflict (Table.States (18), 39, (56, 0),  0);
+            Add_Action (Table.States (18), 41, (60, 1), 48);
+            Add_Action (Table.States (18), 42, Reduce, (56, 0),  0);
+            Table.States (18).Goto_List.Set_Capacity (9);
+            Add_Goto (Table.States (18), 55, 58);
+            Add_Goto (Table.States (18), 56, 50);
+            Add_Goto (Table.States (18), 57, 51);
+            Add_Goto (Table.States (18), 58, 52);
+            Add_Goto (Table.States (18), 59, 53);
+            Add_Goto (Table.States (18), 60, 54);
+            Add_Goto (Table.States (18), 61, 55);
+            Add_Goto (Table.States (18), 62, 56);
+            Add_Goto (Table.States (18), 63, 57);
+            Table.States (19).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (19), (30, 39, 42), (66, 1),  2);
+            Table.States (20).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (20), (17, 39), (49, 0),  1);
+            Table.States (21).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (21), 17, (48, 6), 59);
+            Add_Action (Table.States (21), 39, (49, 1), 60);
             Table.States (22).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (22), 33, (39, 1), 57);
+            Add_Action (Table.States (22), 39, (45, 2), 61);
             Table.States (23).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (23), 33, (39, 2), 58);
-            Table.States (24).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (24), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 10),  1, null,
-            null);
-            Table.States (25).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (25), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 5),  1, null,
-            null);
-            Table.States (26).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (26), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 0),  1, null,
-            null);
-            Table.States (27).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (27), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 2),  1, null,
-            null);
-            Table.States (28).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (28), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 3),  1, null,
-            null);
-            Table.States (29).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (29), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 6),  1, null,
-            null);
-            Table.States (30).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (30), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 7),  1, null,
-            null);
-            Table.States (31).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (31), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 4),  1, null,
-            null);
-            Table.States (32).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (32), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 1),  1, null,
-            null);
-            Table.States (33).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (33), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 8),  1, null,
-            null);
-            Table.States (34).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (34), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (42, 9),  1, null,
-            null);
-            Table.States (35).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (35), 8, (42, 10), 24);
-            Add_Action (Table.States (35), 10, (42, 5), 25);
-            Add_Action (Table.States (35), 15, (42, 0), 26);
-            Add_Action (Table.States (35), 16, (42, 2), 27);
-            Add_Action (Table.States (35), 20, (42, 3), 28);
-            Add_Action (Table.States (35), 23, Reduce, (38, 2),  3, declaration_2'Access, null);
-            Add_Action (Table.States (35), 28, (42, 6), 29);
-            Add_Action (Table.States (35), 30, (42, 7), 30);
-            Add_Action (Table.States (35), 32, (42, 4), 31);
-            Add_Action (Table.States (35), 33, (42, 1), 32);
-            Add_Conflict (Table.States (35), 33, (38, 2),  3, declaration_2'Access, null);
-            Add_Action (Table.States (35), 34, (42, 8), 33);
-            Add_Action (Table.States (35), 35, (42, 9), 34);
-            Add_Action (Table.States (35), 36, Reduce, (38, 2),  3, declaration_2'Access, null);
-            Table.States (35).Goto_List.Set_Capacity (1);
-            Add_Goto (Table.States (35), 42, 59);
-            Table.States (36).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (36), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (41, 0),  1, null,
-            null);
-            Table.States (37).Action_List.Set_Capacity (11);
-            Add_Action (Table.States (37), 8, (42, 10), 24);
-            Add_Action (Table.States (37), 10, (42, 5), 25);
-            Add_Action (Table.States (37), 15, (42, 0), 26);
-            Add_Action (Table.States (37), 16, (42, 2), 27);
-            Add_Action (Table.States (37), 20, (42, 3), 28);
-            Add_Action (Table.States (37), 28, (42, 6), 29);
-            Add_Action (Table.States (37), 30, (42, 7), 30);
-            Add_Action (Table.States (37), 32, (42, 4), 31);
-            Add_Action (Table.States (37), 33, (42, 1), 32);
-            Add_Action (Table.States (37), 34, (42, 8), 33);
-            Add_Action (Table.States (37), 35, (42, 9), 34);
-            Table.States (37).Goto_List.Set_Capacity (2);
-            Add_Goto (Table.States (37), 41, 60);
-            Add_Goto (Table.States (37), 42, 36);
-            Table.States (38).Action_List.Set_Capacity (6);
-            Add_Action (Table.States (38), 18, (53, 0), 38);
-            Add_Action (Table.States (38), 19, (52, 0), 39);
-            Add_Action (Table.States (38), 20, (51, 0), 40);
-            Add_Action (Table.States (38), 21, (47, 0), 41);
-            Add_Action (Table.States (38), 33, (48, 1), 42);
-            Add_Action (Table.States (38), 35, (50, 1), 43);
-            Table.States (38).Goto_List.Set_Capacity (8);
-            Add_Goto (Table.States (38), 47, 46);
-            Add_Goto (Table.States (38), 48, 47);
-            Add_Goto (Table.States (38), 49, 61);
-            Add_Goto (Table.States (38), 50, 49);
-            Add_Goto (Table.States (38), 51, 50);
-            Add_Goto (Table.States (38), 52, 51);
-            Add_Goto (Table.States (38), 53, 52);
-            Add_Goto (Table.States (38), 54, 62);
-            Table.States (39).Action_List.Set_Capacity (6);
-            Add_Action (Table.States (39), 18, (53, 0), 38);
-            Add_Action (Table.States (39), 19, (52, 0), 39);
-            Add_Action (Table.States (39), 20, (51, 0), 40);
-            Add_Action (Table.States (39), 21, (47, 0), 41);
-            Add_Action (Table.States (39), 33, (48, 1), 42);
-            Add_Action (Table.States (39), 35, (50, 1), 43);
-            Table.States (39).Goto_List.Set_Capacity (8);
-            Add_Goto (Table.States (39), 47, 46);
-            Add_Goto (Table.States (39), 48, 47);
-            Add_Goto (Table.States (39), 49, 61);
-            Add_Goto (Table.States (39), 50, 49);
-            Add_Goto (Table.States (39), 51, 50);
-            Add_Goto (Table.States (39), 52, 51);
-            Add_Goto (Table.States (39), 53, 52);
-            Add_Goto (Table.States (39), 54, 63);
-            Table.States (40).Action_List.Set_Capacity (6);
-            Add_Action (Table.States (40), 18, (53, 0), 38);
-            Add_Action (Table.States (40), 19, (52, 0), 39);
-            Add_Action (Table.States (40), 20, (51, 0), 40);
-            Add_Action (Table.States (40), 21, (47, 0), 41);
-            Add_Action (Table.States (40), 33, (48, 1), 42);
-            Add_Action (Table.States (40), 35, (50, 1), 43);
-            Table.States (40).Goto_List.Set_Capacity (8);
-            Add_Goto (Table.States (40), 47, 46);
-            Add_Goto (Table.States (40), 48, 47);
-            Add_Goto (Table.States (40), 49, 61);
-            Add_Goto (Table.States (40), 50, 49);
-            Add_Goto (Table.States (40), 51, 50);
-            Add_Goto (Table.States (40), 52, 51);
-            Add_Goto (Table.States (40), 53, 52);
-            Add_Goto (Table.States (40), 54, 64);
-            Table.States (41).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (41), 33, (47, 0), 65);
-            Table.States (42).Action_List.Set_Capacity (18);
-            Add_Action (Table.States (42), 11, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 12, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 16, (48, 1), 66);
-            Add_Action (Table.States (42), 18, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 19, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 20, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 21, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 23, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 24, (53, 4), 67);
-            Add_Action (Table.States (42), 25, (52, 2), 68);
-            Add_Action (Table.States (42), 26, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 27, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 28, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 29, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 31, (53, 5), 69);
-            Add_Action (Table.States (42), 33, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 35, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (42), 36, Reduce, (50, 0),  1, null, null);
-            Table.States (43).Action_List.Set_Capacity (15);
-            Add_Action (Table.States (43), 11, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 12, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 18, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 19, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 20, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 21, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 23, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 25, (52, 3), 70);
-            Add_Action (Table.States (43), 26, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 27, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 28, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 29, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 33, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 35, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Add_Action (Table.States (43), 36, Reduce, (50, 1),  1, rhs_item_1'Access, null);
-            Table.States (44).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (44), 12, (45, 1), 71);
-            Add_Action (Table.States (44), 23, (45, 2), 72);
-            Add_Conflict (Table.States (44), 23, (44, 1),  0, null, null);
-            Add_Action (Table.States (44), 29, (44, 0), 73);
-            Add_Action (Table.States (44), 33, Reduce, (44, 1),  0, null, null);
-            Add_Action (Table.States (44), 36, Reduce, (44, 1),  0, null, null);
-            Table.States (44).Goto_List.Set_Capacity (1);
-            Add_Goto (Table.States (44), 44, 74);
-            Table.States (45).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (45), (12, 23, 29, 33, 36), (45, 0),  1, null, null);
-            Table.States (46).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (46), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (50, 2),  1,
-            rhs_item_2'Access, null);
-            Table.States (47).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (47), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (49, 0),  1, null,
-            null);
-            Table.States (48).Action_List.Set_Capacity (11);
-            Add_Action (Table.States (48), 11, (46, 2), 75);
-            Add_Action (Table.States (48), 12, Reduce, (46, 1),  1, null, null);
-            Add_Action (Table.States (48), 18, (53, 0), 38);
-            Add_Action (Table.States (48), 19, (52, 0), 39);
-            Add_Action (Table.States (48), 20, (51, 0), 40);
-            Add_Action (Table.States (48), 21, (47, 0), 41);
-            Add_Action (Table.States (48), 23, Reduce, (46, 1),  1, null, null);
-            Add_Action (Table.States (48), 29, Reduce, (46, 1),  1, null, null);
-            Add_Action (Table.States (48), 33, (48, 1), 42);
-            Add_Conflict (Table.States (48), 33, (46, 1),  1, null, null);
-            Add_Action (Table.States (48), 35, (50, 1), 43);
-            Add_Action (Table.States (48), 36, Reduce, (46, 1),  1, null, null);
-            Table.States (48).Goto_List.Set_Capacity (6);
-            Add_Goto (Table.States (48), 47, 46);
-            Add_Goto (Table.States (48), 48, 76);
-            Add_Goto (Table.States (48), 50, 49);
-            Add_Goto (Table.States (48), 51, 50);
-            Add_Goto (Table.States (48), 52, 51);
-            Add_Goto (Table.States (48), 53, 52);
-            Table.States (49).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (49), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (48, 0),  1, null,
-            null);
-            Table.States (50).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (50), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (50, 5),  1,
-            rhs_item_5'Access, null);
+            Add_Action (Table.States (23), 39, (45, 1), 62);
+            Table.States (24).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (24), 39, (45, 0), 63);
+            Table.States (25).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (25), (13, 20), (45, 3),  1);
+            Table.States (26).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (26), (13, 20), (46, 0),  1);
+            Table.States (27).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (27), 13, (48, 7), 64);
+            Add_Action (Table.States (27), 20, (46, 1), 65);
+            Table.States (28).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (28), 13, (48, 8), 66);
+            Add_Action (Table.States (28), 20, (46, 1), 65);
+            Table.States (29).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (29), (30, 39, 42), (48, 15),  3);
+            Table.States (30).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (30), 10, (48, 14), 67);
+            Add_Action (Table.States (30), 23, (48, 13), 68);
+            Table.States (31).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (31), 10, (48, 12), 69);
+            Add_Action (Table.States (31), 23, (48, 11), 70);
+            Table.States (32).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (32), 18, (44, 0), 35);
+            Add_Action (Table.States (32), 40, (44, 1), 38);
+            Add_Action (Table.States (32), 41, (44, 2), 39);
+            Table.States (32).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (32), 44, 71);
+            Table.States (33).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (33), 39, (48, 2), 72);
+            Table.States (34).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (34), 39, (48, 0), 73);
+            Table.States (35).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (35), (18, 30, 38, 39, 40, 41, 42), (44, 0),  1);
+            Table.States (36).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (36), (18, 30, 38, 39, 40, 41, 42), (51, 1),  1);
+            Table.States (37).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (37), (18, 30, 38, 39, 40, 41, 42), (51, 0),  1);
+            Table.States (38).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (38), (18, 30, 38, 39, 40, 41, 42), (44, 1),  1);
+            Table.States (39).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (39), (18, 30, 38, 39, 40, 41, 42), (44, 2),  1);
+            Table.States (40).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (40), (18, 30, 38, 39, 40, 41, 42), (51, 2),  1);
+            Table.States (41).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (41), (18, 30, 38, 39, 40, 41, 42), (52, 0),  1);
+            Table.States (42).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (42), 18, (44, 0), 35);
+            Add_Action (Table.States (42), 30, Reduce, (48, 9),  3);
+            Add_Action (Table.States (42), 38, (51, 1), 36);
+            Add_Action (Table.States (42), 39, (51, 0), 37);
+            Add_Conflict (Table.States (42), 39, (48, 9),  3);
+            Add_Action (Table.States (42), 40, (44, 1), 38);
+            Add_Action (Table.States (42), 41, (44, 2), 39);
+            Add_Action (Table.States (42), 42, Reduce, (48, 9),  3);
+            Table.States (42).Goto_List.Set_Capacity (2);
+            Add_Goto (Table.States (42), 44, 40);
+            Add_Goto (Table.States (42), 51, 74);
+            Table.States (43).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (43), 25, (63, 0), 43);
+            Add_Action (Table.States (43), 26, (62, 0), 44);
+            Add_Action (Table.States (43), 27, (61, 0), 45);
+            Add_Action (Table.States (43), 28, (57, 0), 46);
+            Add_Action (Table.States (43), 39, (58, 1), 47);
+            Add_Action (Table.States (43), 41, (60, 1), 48);
+            Table.States (43).Goto_List.Set_Capacity (8);
+            Add_Goto (Table.States (43), 57, 51);
+            Add_Goto (Table.States (43), 58, 52);
+            Add_Goto (Table.States (43), 59, 75);
+            Add_Goto (Table.States (43), 60, 54);
+            Add_Goto (Table.States (43), 61, 55);
+            Add_Goto (Table.States (43), 62, 56);
+            Add_Goto (Table.States (43), 63, 57);
+            Add_Goto (Table.States (43), 64, 76);
+            Table.States (44).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (44), 25, (63, 0), 43);
+            Add_Action (Table.States (44), 26, (62, 0), 44);
+            Add_Action (Table.States (44), 27, (61, 0), 45);
+            Add_Action (Table.States (44), 28, (57, 0), 46);
+            Add_Action (Table.States (44), 39, (58, 1), 47);
+            Add_Action (Table.States (44), 41, (60, 1), 48);
+            Table.States (44).Goto_List.Set_Capacity (8);
+            Add_Goto (Table.States (44), 57, 51);
+            Add_Goto (Table.States (44), 58, 52);
+            Add_Goto (Table.States (44), 59, 75);
+            Add_Goto (Table.States (44), 60, 54);
+            Add_Goto (Table.States (44), 61, 55);
+            Add_Goto (Table.States (44), 62, 56);
+            Add_Goto (Table.States (44), 63, 57);
+            Add_Goto (Table.States (44), 64, 77);
+            Table.States (45).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (45), 25, (63, 0), 43);
+            Add_Action (Table.States (45), 26, (62, 0), 44);
+            Add_Action (Table.States (45), 27, (61, 0), 45);
+            Add_Action (Table.States (45), 28, (57, 0), 46);
+            Add_Action (Table.States (45), 39, (58, 1), 47);
+            Add_Action (Table.States (45), 41, (60, 1), 48);
+            Table.States (45).Goto_List.Set_Capacity (8);
+            Add_Goto (Table.States (45), 57, 51);
+            Add_Goto (Table.States (45), 58, 52);
+            Add_Goto (Table.States (45), 59, 75);
+            Add_Goto (Table.States (45), 60, 54);
+            Add_Goto (Table.States (45), 61, 55);
+            Add_Goto (Table.States (45), 62, 56);
+            Add_Goto (Table.States (45), 63, 57);
+            Add_Goto (Table.States (45), 64, 78);
+            Table.States (46).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (46), 39, (57, 0), 79);
+            Table.States (47).Action_List.Set_Capacity (18);
+            Add_Action (Table.States (47), 19, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 20, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 23, (58, 1), 80);
+            Add_Action (Table.States (47), 25, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 26, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 27, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 28, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 30, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 31, (63, 4), 81);
+            Add_Action (Table.States (47), 32, (62, 2), 82);
+            Add_Action (Table.States (47), 33, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 34, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 35, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 36, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 37, (63, 5), 83);
+            Add_Action (Table.States (47), 39, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 41, Reduce, (60, 0),  1);
+            Add_Action (Table.States (47), 42, Reduce, (60, 0),  1);
+            Table.States (48).Action_List.Set_Capacity (15);
+            Add_Action (Table.States (48), 19, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 20, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 25, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 26, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 27, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 28, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 30, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 32, (62, 3), 84);
+            Add_Action (Table.States (48), 33, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 34, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 35, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 36, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 39, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 41, Reduce, (60, 1),  1);
+            Add_Action (Table.States (48), 42, Reduce, (60, 1),  1);
+            Table.States (49).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (49), 20, (55, 1), 85);
+            Add_Action (Table.States (49), 30, (55, 2), 86);
+            Add_Conflict (Table.States (49), 30, (54, 1),  0);
+            Add_Action (Table.States (49), 36, (54, 0), 87);
+            Add_Action (Table.States (49), 39, Reduce, (54, 1),  0);
+            Add_Action (Table.States (49), 42, Reduce, (54, 1),  0);
+            Table.States (49).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (49), 54, 88);
+            Table.States (50).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (50), (20, 30, 36, 39, 42), (55, 0),  1);
             Table.States (51).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (51), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (50, 3),  1,
-            rhs_item_3'Access, null);
+            Add_Action (Table.States (51), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (60, 2),  1);
             Table.States (52).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (52), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (50, 4),  1,
-            rhs_item_4'Access, null);
-            Table.States (53).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (53), 12, (45, 1), 71);
-            Add_Action (Table.States (53), 23, (45, 2), 72);
-            Add_Conflict (Table.States (53), 23, (44, 1),  0, null, null);
-            Add_Action (Table.States (53), 29, (44, 0), 73);
-            Add_Action (Table.States (53), 33, Reduce, (44, 1),  0, null, null);
-            Add_Action (Table.States (53), 36, Reduce, (44, 1),  0, null, null);
-            Table.States (53).Goto_List.Set_Capacity (1);
-            Add_Goto (Table.States (53), 44, 77);
-            Table.States (54).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (54), (23, 33, 36), (38, 1),  4, declaration_1'Access, null);
-            Table.States (55).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (55), (9, 33), (40, 1),  2, null, null);
-            Table.States (56).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (56), 33, (38, 4), 78);
-            Table.States (57).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (57), 17, (39, 1), 79);
-            Table.States (58).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (58), 17, (39, 2), 80);
-            Table.States (59).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (59), (8, 10, 15, 16, 20, 23, 28, 30, 32, 33, 34, 35, 36), (41, 1),  2, null,
-            null);
-            Table.States (60).Action_List.Set_Capacity (13);
-            Add_Action (Table.States (60), 8, (42, 10), 24);
-            Add_Action (Table.States (60), 10, (42, 5), 25);
-            Add_Action (Table.States (60), 15, (42, 0), 26);
-            Add_Action (Table.States (60), 16, (42, 2), 27);
-            Add_Action (Table.States (60), 20, (42, 3), 28);
-            Add_Action (Table.States (60), 23, Reduce, (38, 0),  4, declaration_0'Access, null);
-            Add_Action (Table.States (60), 28, (42, 6), 29);
-            Add_Action (Table.States (60), 30, (42, 7), 30);
-            Add_Action (Table.States (60), 32, (42, 4), 31);
-            Add_Action (Table.States (60), 33, (42, 1), 32);
-            Add_Conflict (Table.States (60), 33, (38, 0),  4, declaration_0'Access, null);
-            Add_Action (Table.States (60), 34, (42, 8), 33);
-            Add_Action (Table.States (60), 35, (42, 9), 34);
-            Add_Action (Table.States (60), 36, Reduce, (38, 0),  4, declaration_0'Access, null);
-            Table.States (60).Goto_List.Set_Capacity (1);
-            Add_Goto (Table.States (60), 42, 59);
-            Table.States (61).Action_List.Set_Capacity (10);
-            Add_Action (Table.States (61), 12, Reduce, (54, 0),  1, null, null);
-            Add_Action (Table.States (61), 18, (53, 0), 38);
-            Add_Action (Table.States (61), 19, (52, 0), 39);
-            Add_Action (Table.States (61), 20, (51, 0), 40);
-            Add_Action (Table.States (61), 21, (47, 0), 41);
-            Add_Action (Table.States (61), 26, Reduce, (54, 0),  1, null, null);
-            Add_Action (Table.States (61), 27, Reduce, (54, 0),  1, null, null);
-            Add_Action (Table.States (61), 28, Reduce, (54, 0),  1, null, null);
-            Add_Action (Table.States (61), 33, (48, 1), 42);
-            Add_Action (Table.States (61), 35, (50, 1), 43);
-            Table.States (61).Goto_List.Set_Capacity (6);
-            Add_Goto (Table.States (61), 47, 46);
-            Add_Goto (Table.States (61), 48, 76);
-            Add_Goto (Table.States (61), 50, 49);
-            Add_Goto (Table.States (61), 51, 50);
-            Add_Goto (Table.States (61), 52, 51);
-            Add_Goto (Table.States (61), 53, 52);
-            Table.States (62).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (62), 12, (54, 1), 81);
-            Add_Action (Table.States (62), 26, (53, 0), 82);
-            Table.States (63).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (63), 12, (54, 1), 81);
-            Add_Action (Table.States (63), 27, (52, 0), 83);
-            Table.States (64).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (64), 12, (54, 1), 81);
-            Add_Action (Table.States (64), 28, (51, 0), 84);
-            Table.States (65).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (65), 16, (47, 0), 85);
-            Table.States (66).Action_List.Set_Capacity (6);
-            Add_Action (Table.States (66), 18, (53, 0), 38);
-            Add_Action (Table.States (66), 19, (52, 0), 39);
-            Add_Action (Table.States (66), 20, (51, 0), 40);
-            Add_Action (Table.States (66), 21, (47, 0), 41);
-            Add_Action (Table.States (66), 33, (50, 0), 86);
-            Add_Action (Table.States (66), 35, (50, 1), 43);
-            Table.States (66).Goto_List.Set_Capacity (5);
-            Add_Goto (Table.States (66), 47, 46);
-            Add_Goto (Table.States (66), 50, 87);
-            Add_Goto (Table.States (66), 51, 50);
-            Add_Goto (Table.States (66), 52, 51);
-            Add_Goto (Table.States (66), 53, 52);
-            Table.States (67).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (67), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (53, 4),  2, null,
-            null);
-            Table.States (68).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (68), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (52, 2),  2, null,
-            null);
-            Table.States (69).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (69), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (53, 5),  2, null,
-            null);
-            Table.States (70).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (70), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (52, 3),  2,
-            rhs_optional_item_3'Access, null);
-            Table.States (71).Action_List.Set_Capacity (10);
-            Add_Action (Table.States (71), 12, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (71), 18, (53, 0), 38);
-            Add_Action (Table.States (71), 19, (52, 0), 39);
-            Add_Action (Table.States (71), 20, (51, 0), 40);
-            Add_Action (Table.States (71), 21, (47, 0), 41);
-            Add_Action (Table.States (71), 23, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (71), 29, Reduce, (46, 0),  0, null, null);
-            Add_Action (Table.States (71), 33, (48, 1), 42);
-            Add_Conflict (Table.States (71), 33, (46, 0),  0, null, null);
-            Add_Action (Table.States (71), 35, (50, 1), 43);
-            Add_Action (Table.States (71), 36, Reduce, (46, 0),  0, null, null);
-            Table.States (71).Goto_List.Set_Capacity (8);
-            Add_Goto (Table.States (71), 46, 88);
-            Add_Goto (Table.States (71), 47, 46);
-            Add_Goto (Table.States (71), 48, 47);
-            Add_Goto (Table.States (71), 49, 48);
-            Add_Goto (Table.States (71), 50, 49);
-            Add_Goto (Table.States (71), 51, 50);
-            Add_Goto (Table.States (71), 52, 51);
-            Add_Goto (Table.States (71), 53, 52);
-            Table.States (72).Action_List.Set_Capacity (2);
-            Add_Action (Table.States (72), 4, (45, 3), 89);
-            Add_Action (Table.States (72), 5, (45, 2), 90);
-            Table.States (73).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (73), (23, 33, 36), (44, 0),  1, null, null);
-            Table.States (74).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (74), (23, 33, 36), (43, 0),  4, nonterminal_0'Access, null);
-            Table.States (75).Action_List.Set_Capacity (6);
-            Add_Action (Table.States (75), 11, (46, 3), 91);
-            Add_Action (Table.States (75), 12, Reduce, (46, 2),  2, null, null);
-            Add_Action (Table.States (75), 23, Reduce, (46, 2),  2, null, null);
-            Add_Action (Table.States (75), 29, Reduce, (46, 2),  2, null, null);
-            Add_Action (Table.States (75), 33, Reduce, (46, 2),  2, null, null);
-            Add_Action (Table.States (75), 36, Reduce, (46, 2),  2, null, null);
-            Table.States (76).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (76), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (49, 1),  2, null,
-            null);
-            Table.States (77).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (77), (23, 33, 36), (43, 1),  4, nonterminal_1'Access, null);
-            Table.States (78).Action_List.Set_Capacity (3);
-            Add_Action (Table.States (78), (23, 33, 36), (38, 4),  5, declaration_4'Access, null);
-            Table.States (79).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (79), (1 =>  33), (39, 1),  4, null, null);
-            Table.States (80).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (80), (1 =>  33), (39, 2),  4, null, null);
-            Table.States (81).Action_List.Set_Capacity (6);
-            Add_Action (Table.States (81), 18, (53, 0), 38);
-            Add_Action (Table.States (81), 19, (52, 0), 39);
-            Add_Action (Table.States (81), 20, (51, 0), 40);
-            Add_Action (Table.States (81), 21, (47, 0), 41);
-            Add_Action (Table.States (81), 33, (48, 1), 42);
-            Add_Action (Table.States (81), 35, (50, 1), 43);
-            Table.States (81).Goto_List.Set_Capacity (7);
-            Add_Goto (Table.States (81), 47, 46);
-            Add_Goto (Table.States (81), 48, 47);
-            Add_Goto (Table.States (81), 49, 92);
-            Add_Goto (Table.States (81), 50, 49);
-            Add_Goto (Table.States (81), 51, 50);
-            Add_Goto (Table.States (81), 52, 51);
-            Add_Goto (Table.States (81), 53, 52);
-            Table.States (82).Action_List.Set_Capacity (15);
-            Add_Action (Table.States (82), 11, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 12, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 18, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 19, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 20, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 21, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 22, (53, 1), 93);
-            Add_Action (Table.States (82), 23, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 26, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 27, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 28, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 29, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 33, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 35, Reduce, (53, 0),  3, null, null);
-            Add_Action (Table.States (82), 36, Reduce, (53, 0),  3, null, null);
-            Table.States (83).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (83), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (52, 0),  3, null,
-            null);
-            Table.States (84).Action_List.Set_Capacity (17);
-            Add_Action (Table.States (84), 11, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 12, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 18, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 19, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 20, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 21, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 23, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 24, (53, 2), 94);
-            Add_Action (Table.States (84), 25, (52, 1), 95);
-            Add_Action (Table.States (84), 26, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 27, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 28, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 29, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 31, (53, 3), 96);
-            Add_Action (Table.States (84), 33, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 35, Reduce, (51, 0),  3, null, null);
-            Add_Action (Table.States (84), 36, Reduce, (51, 0),  3, null, null);
-            Table.States (85).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (85), 33, (47, 0), 97);
-            Table.States (86).Action_List.Set_Capacity (17);
-            Add_Action (Table.States (86), 11, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 12, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 18, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 19, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 20, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 21, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 23, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 24, (53, 4), 67);
-            Add_Action (Table.States (86), 25, (52, 2), 68);
-            Add_Action (Table.States (86), 26, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 27, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 28, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 29, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 31, (53, 5), 69);
-            Add_Action (Table.States (86), 33, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 35, Reduce, (50, 0),  1, null, null);
-            Add_Action (Table.States (86), 36, Reduce, (50, 0),  1, null, null);
-            Table.States (87).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (87), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (48, 1),  3, null,
-            null);
-            Table.States (88).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (88), (12, 23, 29, 33, 36), (45, 1),  3, null, null);
-            Table.States (89).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (89), 5, (45, 3), 98);
-            Table.States (90).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (90), 33, (45, 2), 99);
-            Table.States (91).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (91), (12, 23, 29, 33, 36), (46, 3),  3, null, null);
-            Table.States (92).Action_List.Set_Capacity (10);
-            Add_Action (Table.States (92), 12, Reduce, (54, 1),  3, null, null);
-            Add_Action (Table.States (92), 18, (53, 0), 38);
-            Add_Action (Table.States (92), 19, (52, 0), 39);
-            Add_Action (Table.States (92), 20, (51, 0), 40);
-            Add_Action (Table.States (92), 21, (47, 0), 41);
-            Add_Action (Table.States (92), 26, Reduce, (54, 1),  3, null, null);
-            Add_Action (Table.States (92), 27, Reduce, (54, 1),  3, null, null);
-            Add_Action (Table.States (92), 28, Reduce, (54, 1),  3, null, null);
-            Add_Action (Table.States (92), 33, (48, 1), 42);
-            Add_Action (Table.States (92), 35, (50, 1), 43);
-            Table.States (92).Goto_List.Set_Capacity (6);
-            Add_Goto (Table.States (92), 47, 46);
-            Add_Goto (Table.States (92), 48, 76);
-            Add_Goto (Table.States (92), 50, 49);
-            Add_Goto (Table.States (92), 51, 50);
-            Add_Goto (Table.States (92), 52, 51);
-            Add_Goto (Table.States (92), 53, 52);
-            Table.States (93).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (93), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (53, 1),  4, null,
-            null);
-            Table.States (94).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (94), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (53, 2),  4, null,
-            null);
-            Table.States (95).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (95), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (52, 1),  4, null,
-            null);
-            Table.States (96).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (96), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (53, 3),  4, null,
-            null);
-            Table.States (97).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (97), 17, (47, 0), 100);
-            Table.States (98).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (98), (12, 23, 29, 33, 36), (45, 3),  4, null, null);
-            Table.States (99).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (99), 16, (45, 2), 101);
-            Table.States (100).Action_List.Set_Capacity (14);
-            Add_Action (Table.States (100), (11, 12, 18, 19, 20, 21, 23, 26, 27, 28, 29, 33, 35, 36), (47, 0),  5,
-            null, null);
-            Table.States (101).Action_List.Set_Capacity (1);
-            Add_Action (Table.States (101), 33, (45, 2), 102);
-            Table.States (102).Action_List.Set_Capacity (5);
-            Add_Action (Table.States (102), (12, 23, 29, 33, 36), (45, 2),  6, null, null);
+            Add_Action (Table.States (52), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (59, 0),  1);
+            Table.States (53).Action_List.Set_Capacity (11);
+            Add_Action (Table.States (53), 19, (56, 2), 89);
+            Add_Action (Table.States (53), 20, Reduce, (56, 1),  1);
+            Add_Action (Table.States (53), 25, (63, 0), 43);
+            Add_Action (Table.States (53), 26, (62, 0), 44);
+            Add_Action (Table.States (53), 27, (61, 0), 45);
+            Add_Action (Table.States (53), 28, (57, 0), 46);
+            Add_Action (Table.States (53), 30, Reduce, (56, 1),  1);
+            Add_Action (Table.States (53), 36, Reduce, (56, 1),  1);
+            Add_Action (Table.States (53), 39, (58, 1), 47);
+            Add_Conflict (Table.States (53), 39, (56, 1),  1);
+            Add_Action (Table.States (53), 41, (60, 1), 48);
+            Add_Action (Table.States (53), 42, Reduce, (56, 1),  1);
+            Table.States (53).Goto_List.Set_Capacity (6);
+            Add_Goto (Table.States (53), 57, 51);
+            Add_Goto (Table.States (53), 58, 90);
+            Add_Goto (Table.States (53), 60, 54);
+            Add_Goto (Table.States (53), 61, 55);
+            Add_Goto (Table.States (53), 62, 56);
+            Add_Goto (Table.States (53), 63, 57);
+            Table.States (54).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (54), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (58, 0),  1);
+            Table.States (55).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (55), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (60, 5),  1);
+            Table.States (56).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (56), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (60, 3),  1);
+            Table.States (57).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (57), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (60, 4),  1);
+            Table.States (58).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (58), 20, (55, 1), 85);
+            Add_Action (Table.States (58), 30, (55, 2), 86);
+            Add_Conflict (Table.States (58), 30, (54, 1),  0);
+            Add_Action (Table.States (58), 36, (54, 0), 87);
+            Add_Action (Table.States (58), 39, Reduce, (54, 1),  0);
+            Add_Action (Table.States (58), 42, Reduce, (54, 1),  0);
+            Table.States (58).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (58), 54, 91);
          end Subr_1;
+         procedure Subr_2
+         is begin
+            Table.States (59).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (59), (30, 39, 42), (48, 6),  4);
+            Table.States (60).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (60), (17, 39), (49, 1),  2);
+            Table.States (61).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (61), (13, 20), (45, 2),  2);
+            Table.States (62).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (62), (13, 20), (45, 1),  2);
+            Table.States (63).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (63), (13, 20), (45, 0),  2);
+            Table.States (64).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (64), 16, (48, 7), 92);
+            Table.States (65).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (65), 3, (45, 2), 22);
+            Add_Action (Table.States (65), 14, (45, 1), 23);
+            Add_Action (Table.States (65), 15, (45, 0), 24);
+            Add_Action (Table.States (65), 39, (45, 3), 25);
+            Table.States (65).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (65), 45, 93);
+            Table.States (66).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (66), 16, (48, 8), 94);
+            Table.States (67).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (67), 39, (50, 0), 95);
+            Table.States (67).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (67), 50, 96);
+            Table.States (68).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (68), 39, (48, 13), 97);
+            Table.States (69).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (69), 39, (50, 0), 95);
+            Table.States (69).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (69), 50, 98);
+            Table.States (70).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (70), 39, (48, 11), 99);
+            Table.States (71).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (71), (30, 39, 42), (48, 5),  4);
+            Table.States (72).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (72), 24, (48, 2), 100);
+            Table.States (73).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (73), 24, (48, 0), 101);
+            Table.States (74).Action_List.Set_Capacity (7);
+            Add_Action (Table.States (74), (18, 30, 38, 39, 40, 41, 42), (52, 1),  2);
+            Table.States (75).Action_List.Set_Capacity (10);
+            Add_Action (Table.States (75), 20, Reduce, (64, 0),  1);
+            Add_Action (Table.States (75), 25, (63, 0), 43);
+            Add_Action (Table.States (75), 26, (62, 0), 44);
+            Add_Action (Table.States (75), 27, (61, 0), 45);
+            Add_Action (Table.States (75), 28, (57, 0), 46);
+            Add_Action (Table.States (75), 33, Reduce, (64, 0),  1);
+            Add_Action (Table.States (75), 34, Reduce, (64, 0),  1);
+            Add_Action (Table.States (75), 35, Reduce, (64, 0),  1);
+            Add_Action (Table.States (75), 39, (58, 1), 47);
+            Add_Action (Table.States (75), 41, (60, 1), 48);
+            Table.States (75).Goto_List.Set_Capacity (6);
+            Add_Goto (Table.States (75), 57, 51);
+            Add_Goto (Table.States (75), 58, 90);
+            Add_Goto (Table.States (75), 60, 54);
+            Add_Goto (Table.States (75), 61, 55);
+            Add_Goto (Table.States (75), 62, 56);
+            Add_Goto (Table.States (75), 63, 57);
+            Table.States (76).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (76), 20, (64, 1), 102);
+            Add_Action (Table.States (76), 33, (63, 0), 103);
+            Table.States (77).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (77), 20, (64, 1), 102);
+            Add_Action (Table.States (77), 34, (62, 0), 104);
+            Table.States (78).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (78), 20, (64, 1), 102);
+            Add_Action (Table.States (78), 35, (61, 0), 105);
+            Table.States (79).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (79), 23, (57, 0), 106);
+            Table.States (80).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (80), 25, (63, 0), 43);
+            Add_Action (Table.States (80), 26, (62, 0), 44);
+            Add_Action (Table.States (80), 27, (61, 0), 45);
+            Add_Action (Table.States (80), 28, (57, 0), 46);
+            Add_Action (Table.States (80), 39, (60, 0), 107);
+            Add_Action (Table.States (80), 41, (60, 1), 48);
+            Table.States (80).Goto_List.Set_Capacity (5);
+            Add_Goto (Table.States (80), 57, 51);
+            Add_Goto (Table.States (80), 60, 108);
+            Add_Goto (Table.States (80), 61, 55);
+            Add_Goto (Table.States (80), 62, 56);
+            Add_Goto (Table.States (80), 63, 57);
+            Table.States (81).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (81), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (63, 4),  2);
+            Table.States (82).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (82), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (62, 2),  2);
+            Table.States (83).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (83), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (63, 5),  2);
+            Table.States (84).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (84), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (62, 3),  2);
+            Table.States (85).Action_List.Set_Capacity (10);
+            Add_Action (Table.States (85), 20, Reduce, (56, 0),  0);
+            Add_Action (Table.States (85), 25, (63, 0), 43);
+            Add_Action (Table.States (85), 26, (62, 0), 44);
+            Add_Action (Table.States (85), 27, (61, 0), 45);
+            Add_Action (Table.States (85), 28, (57, 0), 46);
+            Add_Action (Table.States (85), 30, Reduce, (56, 0),  0);
+            Add_Action (Table.States (85), 36, Reduce, (56, 0),  0);
+            Add_Action (Table.States (85), 39, (58, 1), 47);
+            Add_Conflict (Table.States (85), 39, (56, 0),  0);
+            Add_Action (Table.States (85), 41, (60, 1), 48);
+            Add_Action (Table.States (85), 42, Reduce, (56, 0),  0);
+            Table.States (85).Goto_List.Set_Capacity (8);
+            Add_Goto (Table.States (85), 56, 109);
+            Add_Goto (Table.States (85), 57, 51);
+            Add_Goto (Table.States (85), 58, 52);
+            Add_Goto (Table.States (85), 59, 53);
+            Add_Goto (Table.States (85), 60, 54);
+            Add_Goto (Table.States (85), 61, 55);
+            Add_Goto (Table.States (85), 62, 56);
+            Add_Goto (Table.States (85), 63, 57);
+            Table.States (86).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (86), 7, (55, 6), 110);
+            Add_Action (Table.States (86), 8, (55, 4), 111);
+            Add_Action (Table.States (86), 9, (55, 2), 112);
+            Table.States (87).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (87), (30, 39, 42), (54, 0),  1);
+            Table.States (88).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (88), (30, 39, 42), (53, 0),  4);
+            Table.States (89).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (89), 19, (56, 3), 113);
+            Add_Action (Table.States (89), 20, Reduce, (56, 2),  2);
+            Add_Action (Table.States (89), 30, Reduce, (56, 2),  2);
+            Add_Action (Table.States (89), 36, Reduce, (56, 2),  2);
+            Add_Action (Table.States (89), 39, Reduce, (56, 2),  2);
+            Add_Action (Table.States (89), 42, Reduce, (56, 2),  2);
+            Table.States (90).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (90), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (59, 1),  2);
+            Table.States (91).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (91), (30, 39, 42), (53, 1),  4);
+            Table.States (92).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (92), 39, (47, 0), 114);
+            Add_Action (Table.States (92), 41, (47, 1), 115);
+            Table.States (92).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (92), 47, 116);
+            Table.States (93).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (93), (13, 20), (46, 1),  3);
+            Table.States (94).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (94), 39, (47, 0), 114);
+            Add_Action (Table.States (94), 41, (47, 1), 115);
+            Table.States (94).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (94), 47, 117);
+            Table.States (95).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (95), (20, 30, 36, 39, 42), (50, 0),  1);
+            Table.States (96).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (96), 20, (50, 1), 118);
+            Add_Action (Table.States (96), 30, Reduce, (48, 14),  5);
+            Add_Action (Table.States (96), 39, Reduce, (48, 14),  5);
+            Add_Action (Table.States (96), 42, Reduce, (48, 14),  5);
+            Table.States (97).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (97), (30, 39, 42), (48, 13),  5);
+            Table.States (98).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (98), 20, (50, 1), 118);
+            Add_Action (Table.States (98), 30, Reduce, (48, 12),  5);
+            Add_Action (Table.States (98), 39, Reduce, (48, 12),  5);
+            Add_Action (Table.States (98), 42, Reduce, (48, 12),  5);
+            Table.States (99).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (99), (30, 39, 42), (48, 11),  5);
+            Table.States (100).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (100), 39, (48, 2), 119);
+            Table.States (101).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (101), 39, (48, 0), 120);
+            Table.States (102).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (102), 25, (63, 0), 43);
+            Add_Action (Table.States (102), 26, (62, 0), 44);
+            Add_Action (Table.States (102), 27, (61, 0), 45);
+            Add_Action (Table.States (102), 28, (57, 0), 46);
+            Add_Action (Table.States (102), 39, (58, 1), 47);
+            Add_Action (Table.States (102), 41, (60, 1), 48);
+            Table.States (102).Goto_List.Set_Capacity (7);
+            Add_Goto (Table.States (102), 57, 51);
+            Add_Goto (Table.States (102), 58, 52);
+            Add_Goto (Table.States (102), 59, 121);
+            Add_Goto (Table.States (102), 60, 54);
+            Add_Goto (Table.States (102), 61, 55);
+            Add_Goto (Table.States (102), 62, 56);
+            Add_Goto (Table.States (102), 63, 57);
+            Table.States (103).Action_List.Set_Capacity (15);
+            Add_Action (Table.States (103), 19, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 20, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 25, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 26, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 27, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 28, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 29, (63, 1), 122);
+            Add_Action (Table.States (103), 30, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 33, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 34, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 35, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 36, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 39, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 41, Reduce, (63, 0),  3);
+            Add_Action (Table.States (103), 42, Reduce, (63, 0),  3);
+            Table.States (104).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (104), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (62, 0),  3);
+            Table.States (105).Action_List.Set_Capacity (17);
+            Add_Action (Table.States (105), 19, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 20, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 25, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 26, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 27, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 28, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 30, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 31, (63, 2), 123);
+            Add_Action (Table.States (105), 32, (62, 1), 124);
+            Add_Action (Table.States (105), 33, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 34, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 35, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 36, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 37, (63, 3), 125);
+            Add_Action (Table.States (105), 39, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 41, Reduce, (61, 0),  3);
+            Add_Action (Table.States (105), 42, Reduce, (61, 0),  3);
+            Table.States (106).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (106), 39, (57, 0), 126);
+            Table.States (107).Action_List.Set_Capacity (17);
+            Add_Action (Table.States (107), 19, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 20, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 25, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 26, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 27, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 28, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 30, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 31, (63, 4), 81);
+            Add_Action (Table.States (107), 32, (62, 2), 82);
+            Add_Action (Table.States (107), 33, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 34, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 35, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 36, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 37, (63, 5), 83);
+            Add_Action (Table.States (107), 39, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 41, Reduce, (60, 0),  1);
+            Add_Action (Table.States (107), 42, Reduce, (60, 0),  1);
+            Table.States (108).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (108), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (58, 1),  3);
+            Table.States (109).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (109), (20, 30, 36, 39, 42), (55, 1),  3);
+            Table.States (110).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (110), 9, (55, 6), 127);
+            Table.States (111).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (111), 39, (55, 4), 128);
+            Table.States (112).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (112), 39, (55, 2), 129);
+            Table.States (113).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (113), (20, 30, 36, 39, 42), (56, 3),  3);
+            Table.States (114).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (114), (21, 30, 39, 42), (47, 0),  1);
+            Table.States (115).Action_List.Set_Capacity (4);
+            Add_Action (Table.States (115), (21, 30, 39, 42), (47, 1),  1);
+            Table.States (116).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (116), (30, 39, 42), (48, 7),  6);
+            Table.States (117).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (117), 21, (48, 8), 130);
+            Table.States (118).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (118), 39, (50, 1), 131);
+            Table.States (119).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (119), 18, (44, 0), 35);
+            Add_Action (Table.States (119), 30, Reduce, (48, 4),  6);
+            Add_Action (Table.States (119), 39, Reduce, (48, 4),  6);
+            Add_Action (Table.States (119), 40, (44, 1), 38);
+            Add_Action (Table.States (119), 41, (44, 2), 39);
+            Add_Action (Table.States (119), 42, Reduce, (48, 4),  6);
+            Table.States (119).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (119), 44, 132);
+            Table.States (120).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (120), 18, (44, 0), 35);
+            Add_Action (Table.States (120), 40, (44, 1), 38);
+            Add_Action (Table.States (120), 41, (44, 2), 39);
+            Table.States (120).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (120), 44, 133);
+            Table.States (121).Action_List.Set_Capacity (10);
+            Add_Action (Table.States (121), 20, Reduce, (64, 1),  3);
+            Add_Action (Table.States (121), 25, (63, 0), 43);
+            Add_Action (Table.States (121), 26, (62, 0), 44);
+            Add_Action (Table.States (121), 27, (61, 0), 45);
+            Add_Action (Table.States (121), 28, (57, 0), 46);
+            Add_Action (Table.States (121), 33, Reduce, (64, 1),  3);
+            Add_Action (Table.States (121), 34, Reduce, (64, 1),  3);
+            Add_Action (Table.States (121), 35, Reduce, (64, 1),  3);
+            Add_Action (Table.States (121), 39, (58, 1), 47);
+            Add_Action (Table.States (121), 41, (60, 1), 48);
+            Table.States (121).Goto_List.Set_Capacity (6);
+            Add_Goto (Table.States (121), 57, 51);
+            Add_Goto (Table.States (121), 58, 90);
+            Add_Goto (Table.States (121), 60, 54);
+            Add_Goto (Table.States (121), 61, 55);
+            Add_Goto (Table.States (121), 62, 56);
+            Add_Goto (Table.States (121), 63, 57);
+            Table.States (122).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (122), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (63, 1),  4);
+            Table.States (123).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (123), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (63, 2),  4);
+            Table.States (124).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (124), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (62, 1),  4);
+            Table.States (125).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (125), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (63, 3),  4);
+            Table.States (126).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (126), 24, (57, 0), 134);
+            Table.States (127).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (127), (20, 30, 36, 39, 42), (55, 6),  4);
+            Table.States (128).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (128), 10, (55, 5), 135);
+            Add_Action (Table.States (128), 23, (55, 4), 136);
+            Table.States (129).Action_List.Set_Capacity (2);
+            Add_Action (Table.States (129), 10, (55, 3), 137);
+            Add_Action (Table.States (129), 23, (55, 2), 138);
+            Table.States (130).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (130), 39, (48, 8), 139);
+            Table.States (131).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (131), (20, 30, 36, 39, 42), (50, 1),  3);
+         end Subr_2;
+         procedure Subr_3
+         is begin
+            Table.States (132).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (132), 18, (44, 0), 35);
+            Add_Action (Table.States (132), 30, Reduce, (48, 3),  7);
+            Add_Action (Table.States (132), 39, Reduce, (48, 3),  7);
+            Add_Action (Table.States (132), 40, (44, 1), 38);
+            Add_Action (Table.States (132), 41, (44, 2), 39);
+            Add_Action (Table.States (132), 42, Reduce, (48, 3),  7);
+            Table.States (132).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (132), 44, 140);
+            Table.States (133).Action_List.Set_Capacity (6);
+            Add_Action (Table.States (133), 18, (44, 0), 35);
+            Add_Action (Table.States (133), 30, Reduce, (48, 1),  7);
+            Add_Action (Table.States (133), 39, Reduce, (48, 1),  7);
+            Add_Action (Table.States (133), 40, (44, 1), 38);
+            Add_Action (Table.States (133), 41, (44, 2), 39);
+            Add_Action (Table.States (133), 42, Reduce, (48, 1),  7);
+            Table.States (133).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (133), 44, 141);
+            Table.States (134).Action_List.Set_Capacity (14);
+            Add_Action (Table.States (134), (19, 20, 25, 26, 27, 28, 30, 33, 34, 35, 36, 39, 41, 42), (57, 0),  5);
+            Table.States (135).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (135), 39, (50, 0), 95);
+            Table.States (135).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (135), 50, 142);
+            Table.States (136).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (136), 39, (55, 4), 143);
+            Table.States (137).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (137), 39, (50, 0), 95);
+            Table.States (137).Goto_List.Set_Capacity (1);
+            Add_Goto (Table.States (137), 50, 144);
+            Table.States (138).Action_List.Set_Capacity (1);
+            Add_Action (Table.States (138), 39, (55, 2), 145);
+            Table.States (139).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (139), (30, 39, 42), (48, 8),  8);
+            Table.States (140).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (140), (30, 39, 42), (48, 2),  8);
+            Table.States (141).Action_List.Set_Capacity (3);
+            Add_Action (Table.States (141), (30, 39, 42), (48, 0),  8);
+            Table.States (142).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (142), 20, (50, 1), 118);
+            Add_Conflict (Table.States (142), 20, (55, 5),  6);
+            Add_Action (Table.States (142), 30, Reduce, (55, 5),  6);
+            Add_Action (Table.States (142), 36, Reduce, (55, 5),  6);
+            Add_Action (Table.States (142), 39, Reduce, (55, 5),  6);
+            Add_Action (Table.States (142), 42, Reduce, (55, 5),  6);
+            Table.States (143).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (143), (20, 30, 36, 39, 42), (55, 4),  6);
+            Table.States (144).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (144), 20, (50, 1), 118);
+            Add_Conflict (Table.States (144), 20, (55, 3),  6);
+            Add_Action (Table.States (144), 30, Reduce, (55, 3),  6);
+            Add_Action (Table.States (144), 36, Reduce, (55, 3),  6);
+            Add_Action (Table.States (144), 39, Reduce, (55, 3),  6);
+            Add_Action (Table.States (144), 42, Reduce, (55, 3),  6);
+            Table.States (145).Action_List.Set_Capacity (5);
+            Add_Action (Table.States (145), (20, 30, 36, 39, 42), (55, 2),  6);
+         end Subr_3;
       begin
          Subr_1;
+         Subr_2;
+         Subr_3;
          Table.Error_Action := new Parse_Action_Node'((Verb => Error, others => <>), null);
       end;
 
-      WisiToken.Parse.LR.Parser_No_Recover.New_Parser
-        (Parser,
-         Trace,
-         Lexer.New_Lexer (Trace.Descriptor),
-         Table,
-         User_Data,
-         Max_Parallel         => 15,
-         Terminate_Same_State => True);
-   end Create_Parser;
+      Table.Max_Parallel := 15;
+      return Table;
+   end Create_Parse_Table;
+
+   function Create_Lexer (Trace : in WisiToken.Trace_Access) return WisiToken.Lexer.Handle
+   is begin
+      return Lexer.New_Lexer (Trace, Wisitoken_Grammar_Actions.Descriptor'Access);
+   end Create_Lexer;
+
+   function Create_Productions return WisiToken.Syntax_Trees.Production_Info_Trees.Vector
+   is begin
+      return Result : WisiToken.Syntax_Trees.Production_Info_Trees.Vector do
+         Result.Set_First_Last (43, 66);
+         Result (48).RHSs.Set_First_Last (0, 15);
+         Result (48).RHSs (0).In_Parse_Action := null;
+         Result (48).RHSs (0).Post_Parse_Action := declaration_0'Access;
+         Result (48).RHSs (1).In_Parse_Action := null;
+         Result (48).RHSs (1).Post_Parse_Action := declaration_1'Access;
+         Result (48).RHSs (2).In_Parse_Action := null;
+         Result (48).RHSs (2).Post_Parse_Action := declaration_2'Access;
+         Result (48).RHSs (3).In_Parse_Action := null;
+         Result (48).RHSs (3).Post_Parse_Action := declaration_3'Access;
+         Result (48).RHSs (4).In_Parse_Action := null;
+         Result (48).RHSs (4).Post_Parse_Action := declaration_4'Access;
+         Result (48).RHSs (5).In_Parse_Action := null;
+         Result (48).RHSs (5).Post_Parse_Action := declaration_5'Access;
+         Result (48).RHSs (6).In_Parse_Action := null;
+         Result (48).RHSs (6).Post_Parse_Action := declaration_6'Access;
+         Result (48).RHSs (7).In_Parse_Action := null;
+         Result (48).RHSs (7).Post_Parse_Action := declaration_7'Access;
+         Result (48).RHSs (8).In_Parse_Action := null;
+         Result (48).RHSs (8).Post_Parse_Action := declaration_8'Access;
+         Result (48).RHSs (9).In_Parse_Action := null;
+         Result (48).RHSs (9).Post_Parse_Action := declaration_9'Access;
+         Result (48).RHSs (10).In_Parse_Action := null;
+         Result (48).RHSs (10).Post_Parse_Action := declaration_10'Access;
+         Result (48).RHSs (11).In_Parse_Action := null;
+         Result (48).RHSs (11).Post_Parse_Action := declaration_11'Access;
+         Result (48).RHSs (12).In_Parse_Action := null;
+         Result (48).RHSs (12).Post_Parse_Action := declaration_12'Access;
+         Result (48).RHSs (13).In_Parse_Action := null;
+         Result (48).RHSs (13).Post_Parse_Action := declaration_13'Access;
+         Result (48).RHSs (14).In_Parse_Action := null;
+         Result (48).RHSs (14).Post_Parse_Action := declaration_14'Access;
+         Result (48).RHSs (15).In_Parse_Action := null;
+         Result (48).RHSs (15).Post_Parse_Action := declaration_15'Access;
+         Result (53).RHSs.Set_First_Last (0, 1);
+         Result (53).RHSs (0).In_Parse_Action := null;
+         Result (53).RHSs (0).Post_Parse_Action := nonterminal_0'Access;
+         Result (53).RHSs (1).In_Parse_Action := null;
+         Result (53).RHSs (1).Post_Parse_Action := nonterminal_1'Access;
+         Result (60).RHSs.Set_First_Last (0, 5);
+         Result (60).RHSs (0).In_Parse_Action := null;
+         Result (60).RHSs (0).Post_Parse_Action := null;
+         Result (60).RHSs (1).In_Parse_Action := null;
+         Result (60).RHSs (1).Post_Parse_Action := rhs_item_1'Access;
+         Result (60).RHSs (2).In_Parse_Action := null;
+         Result (60).RHSs (2).Post_Parse_Action := rhs_item_2'Access;
+         Result (60).RHSs (3).In_Parse_Action := null;
+         Result (60).RHSs (3).Post_Parse_Action := rhs_item_3'Access;
+         Result (60).RHSs (4).In_Parse_Action := null;
+         Result (60).RHSs (4).Post_Parse_Action := rhs_item_4'Access;
+         Result (60).RHSs (5).In_Parse_Action := null;
+         Result (60).RHSs (5).Post_Parse_Action := rhs_item_5'Access;
+         Result (62).RHSs.Set_First_Last (0, 3);
+         Result (62).RHSs (0).In_Parse_Action := null;
+         Result (62).RHSs (0).Post_Parse_Action := null;
+         Result (62).RHSs (1).In_Parse_Action := null;
+         Result (62).RHSs (1).Post_Parse_Action := null;
+         Result (62).RHSs (2).In_Parse_Action := null;
+         Result (62).RHSs (2).Post_Parse_Action := null;
+         Result (62).RHSs (3).In_Parse_Action := null;
+         Result (62).RHSs (3).Post_Parse_Action := rhs_optional_item_3'Access;
+      end return;
+   end Create_Productions;
+
 end Wisitoken_Grammar_Main;

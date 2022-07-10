@@ -1,9 +1,8 @@
 --  Abstract :
 --
---  A generic doubly linked list with indefinite elements, allowing
---  permanent references to elements.
+--  A generic doubly linked list with indefinite elements.
 --
---  Copyright (C) 2018 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -24,14 +23,18 @@
 pragma License (Modified_GPL);
 
 with Ada.Finalization;
+with Ada.Iterator_Interfaces;
 with Ada.Unchecked_Deallocation;
 generic
    type Element_Type (<>) is private;
 package SAL.Gen_Indefinite_Doubly_Linked_Lists is
 
-   type List is new Ada.Finalization.Controlled with private with
+   type List is new Ada.Finalization.Controlled with private
+   with
      Constant_Indexing => Constant_Reference,
-     Variable_Indexing => Variable_Reference;
+     Variable_Indexing => Variable_Reference,
+     Default_Iterator  => Iterate,
+     Iterator_Element  => Element_Type;
 
    Empty_List : constant List;
 
@@ -47,6 +50,8 @@ package SAL.Gen_Indefinite_Doubly_Linked_Lists is
 
    procedure Prepend (Container : in out List; Element : in Element_Type);
 
+   function To_List (Element : in Element_Type) return List;
+
    type Cursor is private;
 
    No_Element : constant Cursor;
@@ -54,19 +59,24 @@ package SAL.Gen_Indefinite_Doubly_Linked_Lists is
    function Has_Element (Position : in Cursor) return Boolean;
 
    function First (Container : in List) return Cursor;
+   function Last (Container : in List) return Cursor;
 
    procedure Next (Position : in out Cursor);
 
    function Next (Position : in Cursor) return Cursor;
+   function Previous (Position : in Cursor) return Cursor;
 
    function Element (Position : in Cursor) return Element_Type
    with Pre => Has_Element (Position);
 
+   function Append (Container : in out List; Element : in Element_Type) return Cursor;
+
    procedure Delete (Container : in out List; Position : in out Cursor)
    with Pre => Has_Element (Position);
 
-   function Persistent_Ref (Position : in Cursor) return access Element_Type
+   function Unchecked_Ref (Position : in Cursor) return access Element_Type
    with Pre => Has_Element (Position);
+   --  For use in building higher-level containers.
 
    type Constant_Reference_Type (Element : not null access constant Element_Type) is private with
      Implicit_Dereference => Element;
@@ -74,17 +84,21 @@ package SAL.Gen_Indefinite_Doubly_Linked_Lists is
    function Constant_Ref (Position : in Cursor) return Constant_Reference_Type
    with Inline, Pre => Has_Element (Position);
 
-   function Constant_Reference (Container : in List; Position : in Peek_Type) return Constant_Reference_Type
-   with Inline, Pre => Position <= Container.Length;
+   function Constant_Reference (Container : in List; Position : in Cursor) return Constant_Reference_Type
+   with Inline, Pre => Has_Element (Position);
 
    type Variable_Reference_Type (Element : not null access Element_Type) is private with
      Implicit_Dereference => Element;
 
-   function Variable_Reference (Container : in List; Position : in Peek_Type) return Variable_Reference_Type
-   with Inline, Pre => Position <= Container.Length;
+   function Variable_Reference (Container : in List; Position : in Cursor) return Variable_Reference_Type
+   with Inline, Pre => Has_Element (Position);
 
    function Variable_Ref (Position : in Cursor) return Variable_Reference_Type
    with Inline, Pre => Has_Element (Position);
+
+   package Iterator_Interfaces is new Ada.Iterator_Interfaces (Cursor, Has_Element);
+
+   function Iterate (Container : aliased in List) return Iterator_Interfaces.Reversible_Iterator'Class;
 
 private
    type Node_Type;
@@ -121,8 +135,22 @@ private
       Dummy : Integer := raise Program_Error with "uninitialized reference";
    end record;
 
-   Empty_List : constant List := (Ada.Finalization.Controlled with null, null, 0);
+   Empty_List : aliased constant List := (Ada.Finalization.Controlled with null, null, 0);
 
    No_Element : constant Cursor := (Ptr => null);
+
+   type Iterator (Container : not null access constant List) is new Iterator_Interfaces.Reversible_Iterator with
+   null record;
+
+   overriding function First (Object : Iterator) return Cursor;
+   overriding function Last  (Object : Iterator) return Cursor;
+
+   overriding function Next
+     (Object   : Iterator;
+      Position : Cursor) return Cursor;
+
+   overriding function Previous
+     (Object   : Iterator;
+      Position : Cursor) return Cursor;
 
 end SAL.Gen_Indefinite_Doubly_Linked_Lists;
