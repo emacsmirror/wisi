@@ -88,6 +88,10 @@
   (save-excursion
     (goto-char (point-min))
     (forward-line (1- line))
+
+    (when (< 1 wisi-debug)
+      (wisi-parse-log-message wisi-parser-shared (format "wisi-fringe--put-left line %d" line)))
+
     (let* ((endpos (line-end-position))
 	   (ov (make-overlay endpos (1+ endpos)))
 	   (bmp 'wisi-fringe--double-exclaim-bmp))
@@ -125,7 +129,7 @@ The buffer containing POSITIONS must be current, and the window
 displaying that buffer must be current."
   ;; We don't recompute fringe display on scroll, because the user
   ;; will probably have edited the code by then, triggering a new
-  ;; parse.
+  ;; parse. FIXME: use flymake.
   (wisi-fringe-clean)
   (when positions
     (let (scaled-posns
@@ -134,6 +138,14 @@ displaying that buffer must be current."
 	  (window-pos-first (window-start))
 	  (window-pos-last  (window-end))
 	  (window-line-first (line-number-at-pos (window-start) t)))
+
+      (when (< 1 wisi-debug)
+	(wisi-parse-log-message wisi-parser-shared
+				(format "wisi-fringe-display-errors %d %d %d"
+					(length positions)
+					window-pos-first
+					window-pos-last)))
+
       (dolist (pos positions)
 	(let* ((line (line-number-at-pos (max (point-min) (min (point-max) pos)) t))
 	       (scaled-pos (wisi-fringe--scale line buffer-lines window-line-first window-lines)))

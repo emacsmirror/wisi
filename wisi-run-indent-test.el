@@ -17,7 +17,6 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
-(require 'wisi-tests)
 (require 'wisi-prj)
 (require 'wisi-process-parse)
 
@@ -100,6 +99,26 @@ FACE may be a list."
     (search-forward search)
     (test-face token face)
     ))
+
+(defun test-left-fringe-mark (search-string present)
+  "Search for SEARCH-STRING; if PRESENT is non-nil, assert that
+left fringe mark is present on that line.  Otherwise, assert it
+is not present."
+  (save-excursion
+    (when (test-in-comment-p)
+      (beginning-of-line); forward-comment doesn't move if inside a comment!
+      (forward-comment (point-max)))
+    (search-forward search-string)
+    (let* ((mark (overlays-in (line-end-position) (1+ (line-end-position)))))
+      (cond
+       (present
+	(unless mark
+	  (error "expecting left fringe mark line %d" (line-number-at-pos))))
+
+       ((not present)
+	(when mark
+	  (error "expecting no left fringe mark line %d" (line-number-at-pos))))
+       ))))
 
 (defun test-cache-class (token class)
   "Test if TOKEN in next code line has wisi-cache with class CLASS."

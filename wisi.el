@@ -7,7 +7,7 @@
 ;; Keywords: parser
 ;;  indentation
 ;;  navigation
-;; Version: 4.0.beta
+;; Version: 4.0.beta1
 ;; package-requires: ((emacs "25.3") (seq "2.20"))
 ;; URL: http://stephe-leake.org/ada/wisitoken.html
 ;;
@@ -927,12 +927,6 @@ Run the parser first if needed."
 	 (setq wisi-parse-failed t)
 	 (signal (car err) (cdr err)))
 	)
-
-      (unless partial-parse-p
-	(wisi-fringe-display-errors
-	 (append
-	  (seq-map (lambda (err) (wisi--lexer-error-pos err)) (wisi-parser-local-lexer-errors wisi-parser-local))
-	  (seq-map (lambda (err) (wisi--parse-error-pos err)) (wisi-parser-local-parse-errors wisi-parser-local)))))
 
       (when (> wisi-debug 2)
 	(if (or (wisi-parser-local-lexer-errors wisi-parser-local)

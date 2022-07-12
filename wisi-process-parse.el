@@ -59,6 +59,7 @@ Must match emacs_wisi_common_parse.ads Protocol_Version.")
   end-pos                 ;; last character position parsed
   language-action-table   ;; array of function pointers, each taking an sexp sent by the process
   query-result            ;; holds result of wisi-process-parse--Query
+  update-fringe           ;; non-nil if wpp--handle-messages should run wisi-fringe-display-errors
   )
 
 (cl-defmethod wisi-parser-transaction-log-buffer-name ((parser wisi-process--parser))
@@ -340,10 +341,11 @@ complete."
   ;; characters, this is hit by
   ;; ada_mode-conditional_expressions.adb.
   (let ((changes
-	 ;; wisi--changes is in reverse time order.
-	 (if wisi--changes
-	     (prin1-to-string (nreverse wisi--changes))
-	   "()")))
+	 (unless full
+	   ;; wisi--changes is in reverse time order.
+	   (if wisi--changes
+	       (prin1-to-string (nreverse wisi--changes))
+	     (error "wpp--send-incremental-parse with nil wisi--changes")))))
     (when (> (length changes) 9999)
       (setq full t))
 
@@ -1075,6 +1077,16 @@ Source buffer is current."
 	  (setf (wisi-process--parser-response-count parser) response-count)
 	  (setf (wisi-process--parser-busy parser) nil)
 	  (set-buffer source-buffer)
+
+	  (when (wisi-process--parser-update-fringe parser)
+	    (setf (wisi-process--parser-update-fringe parser) nil)
+	    (wisi-fringe-display-errors
+	     (append
+	      (seq-map (lambda (err) (wisi--lexer-error-pos err))
+		       (wisi-parser-local-lexer-errors wisi-parser-local))
+	      (seq-map (lambda (err) (wisi--parse-error-pos err))
+		       (wisi-parser-local-parse-errors wisi-parser-local)))))
+
 	  (when (< 1 wisi-debug)
 	    (wisi-parse-log-message parser (format "parse--handle-messages in %s done" source-buffer)))
 	  )
