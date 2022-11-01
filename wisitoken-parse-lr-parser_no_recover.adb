@@ -27,8 +27,6 @@
 
 pragma License (Modified_GPL);
 
-with Ada.Exceptions;
-with GNAT.Traceback.Symbolic;
 package body WisiToken.Parse.LR.Parser_No_Recover is
 
    procedure Reduce_Stack_1
@@ -419,7 +417,9 @@ package body WisiToken.Parse.LR.Parser_No_Recover is
          end;
       end loop Main_Loop;
 
-      Shared_Parser.Tree.Clear_Parse_Streams;
+      Shared_Parser.Tree.Set_Root
+        (Syntax_Trees.Get_Node (Shared_Parser.Tree.Peek (Shared_Parser.Tree.First_Parse_Stream)));
+      Shared_Parser.Tree.Finish_Parse;
 
       if Trace_Action > Extra then
          Trace.Put_Line
@@ -435,71 +435,5 @@ package body WisiToken.Parse.LR.Parser_No_Recover is
       --  recovered, either by inserting a quote, or by ignoring the
       --  character.
    end Parse;
-
-   procedure Execute_Actions
-     (Tree        : in out Syntax_Trees.Tree;
-      Productions : in     Syntax_Trees.Production_Info_Trees.Vector;
-      User_Data   : in     Syntax_Trees.User_Data_Access)
-   is
-      use all type Syntax_Trees.User_Data_Access;
-      procedure Process_Node
-        (Tree : in out Syntax_Trees.Tree;
-         Node : in     Syntax_Trees.Valid_Node_Access)
-      is
-         use Syntax_Trees;
-      begin
-         if Tree.Label (Node) /= Nonterm then
-            return;
-         end if;
-
-         User_Data.Reduce (Tree, Node);
-
-         declare
-            Action : constant Syntax_Trees.Post_Parse_Action := Get_Post_Parse_Action
-              (Productions, Tree.Production_ID (Node));
-         begin
-            if Action /= null then
-               begin
-                  Action (User_Data.all, Tree, Node);
-               exception
-               when E : others =>
-                  if Trace_Tests > Outline then
-                     --  running a unit test; exception may be AUnit assert fail
-                     raise;
-
-                  elsif WisiToken.Debug_Mode then
-                     Tree.Lexer.Trace.Put_Line
-                       (GNAT.Traceback.Symbolic.Symbolic_Traceback (E)); -- includes Prefix
-                     Tree.Lexer.Trace.New_Line;
-                  end if;
-
-                  raise WisiToken.Parse_Error with Tree.Error_Message
-                    (Node, "action raised exception " & Ada.Exceptions.Exception_Name (E) & ": " &
-                       Ada.Exceptions.Exception_Message (E));
-               end;
-            end if;
-         end;
-      end Process_Node;
-
-   begin
-      User_Data.Initialize_Actions (Tree);
-      Tree.Process_Tree (Process_Node'Access);
-   end Execute_Actions;
-
-   overriding procedure Execute_Actions
-     (Parser              : in out LR.Parser_No_Recover.Parser;
-      Action_Region_Bytes : in     WisiToken.Buffer_Region := WisiToken.Null_Buffer_Region)
-   is
-      use all type WisiToken.Syntax_Trees.User_Data_Access;
-      pragma Unreferenced (Action_Region_Bytes);
-   begin
-      if Parser.User_Data /= null then
-         if Parser.Parsers.Count > 1 then
-            raise Syntax_Error with "ambiguous parse; can't execute actions";
-         end if;
-      end if;
-
-      Execute_Actions (Parser.Tree, Parser.Productions, Parser.User_Data);
-   end Execute_Actions;
 
 end WisiToken.Parse.LR.Parser_No_Recover;

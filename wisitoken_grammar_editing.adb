@@ -2937,7 +2937,7 @@ package body WisiToken_Grammar_Editing is
          if Data.Error_Reported.Count > 0 then
             Ada.Text_IO.New_Line;
             Ada.Text_IO.Put_Line ("initial invalid tree:");
-            Tree.Print_Tree;
+            Tree.Print_Tree (Line_Numbers => True, Non_Grammar => True);
          end if;
       end if;
 

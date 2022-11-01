@@ -18,12 +18,9 @@
 --  see file GPL.txt. If not, write to the Free Software Foundation,
 --  59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 --
---  As a special exception, if other files instantiate generics from
---  this unit, or you link this unit with other files to produce an
---  executable, this unit does not by itself cause the resulting
---  executable to be covered by the GNU General Public License. This
---  exception does not however invalidate any other reasons why the
---  executable file might be covered by the GNU Public License.
+--  As a special exception under Section 7 of GPL version 3, you are granted
+--  additional permissions described in the GCC Runtime Library Exception,
+--  version 3.1, as published by the Free Software Foundation.
 
 pragma License (Modified_GPL);
 
@@ -386,12 +383,10 @@ package body WisiToken.Parse.LR.Parser is
                      declare
                         Current_Token : constant Syntax_Trees.Rooted_Ref := Shared_Parser.Tree.Current_Token
                           (Parser_State.Stream);
+                        Tree_Root : constant Syntax_Trees.Rooted_Ref := Shared_Parser.Tree.Stream_Prev (Current_Token);
                      begin
-
-                        --  Insert EOI on Shared_Stream
-                        if Shared_Parser.Tree.ID (Current_Token.Node) /=
-                          Shared_Parser.Tree.Lexer.Descriptor.EOI_ID
-                        then
+                        if Shared_Parser.Tree.ID (Current_Token.Node) /= Shared_Parser.Tree.Lexer.Descriptor.EOI_ID then
+                           --  Insert EOI on Shared_Stream
                            declare
                               Last_Token_Byte_Region_Last : constant Buffer_Pos := Shared_Parser.Tree.Byte_Region
                                 (Current_Token.Node, Trailing_Non_Grammar => False).Last;
@@ -415,6 +410,22 @@ package body WisiToken.Parse.LR.Parser is
                                  Terminal => EOI_Token,
                                  Before   => Shared_Parser.Tree.Stream_Next (Current_Token).Element,
                                  Errors   => Syntax_Trees.Null_Error_List);
+                           end;
+                        end if;
+
+                        if Shared_Parser.Tree.ID (Tree_Root.Node) /= Shared_Parser.Tree.Lexer.Descriptor.Accept_ID then
+                           --  Add Accept_ID node.
+                           declare
+                              Accept_Node : constant Syntax_Trees.Rooted_Ref := Shared_Parser.Tree.Reduce
+                                (Parser_State.Stream,
+                                 Production       =>
+                                   (LHS           => Shared_Parser.Tree.Lexer.Descriptor.Accept_ID,
+                                    RHS           => 1),
+                                 Child_Count      => 1,
+                                 State            => Accept_State,
+                                 Recover_Conflict => False);
+                           begin
+                              Shared_Parser.Tree.Set_Root (Accept_Node.Node);
                            end;
                         end if;
                      end;
@@ -960,6 +971,7 @@ package body WisiToken.Parse.LR.Parser is
    procedure Finish_Parse
      (Parser            : in out LR.Parser.Parser;
       Incremental_Parse : in     Boolean)
+   with Pre => Parser.Parsers.Count = 1
    --  Final actions after LR accept state reached; call
    --  User_Data.Insert_Token, Delete_Token.
    is
@@ -969,19 +981,31 @@ package body WisiToken.Parse.LR.Parser is
 
       Last_Deleted_Node_Parent : Node_Access;
    begin
+      Parser.Tree.Set_Root (Get_Node (Parser.Tree.Peek (Parser.Tree.First_Parse_Stream)));
+
       --  We need parents set in the following code.
+      Parser.Tree.Finish_Parse;
       Parser_State.Clear_Stream;
-      Parser.Tree.Clear_Parse_Streams;
+
+      if Debug_Mode then
+         declare
+            I : Integer := 1;
+         begin
+            for Node of Parser_State.Recover_Insert_Delete loop
+               if not Parser.Tree.In_Tree (Node) then
+                  raise SAL.Programmer_Error with "recover_insert_delete node" & I'Image & " not in tree";
+               end if;
+               I := @ + 1;
+            end loop;
+         end;
+      end if;
 
       if Trace_Parse > Extra and then Parser_State.Recover_Insert_Delete.Length > 0 then
          Parser.Tree.Lexer.Trace.New_Line;
          Parser.Tree.Lexer.Trace.Put_Line ("before insert/delete tree:");
-         Parser.Tree.Lexer.Trace.Put_Line
-           (Parser.Tree.Image
-              (Children     => True,
-               Non_Grammar  => True,
-               Augmented    => True,
-               Line_Numbers => True));
+         Parser.Tree.Print_Tree
+           (Non_Grammar  => True,
+            Line_Numbers => True);
          Parser.Tree.Lexer.Trace.Put_Line
            ("recover_insert_delete: " & Parser_Lists.Recover_Image (Parser_State, Parser.Tree));
          Parser.Tree.Lexer.Trace.New_Line;
@@ -1019,7 +1043,7 @@ package body WisiToken.Parse.LR.Parser is
          end loop;
       end loop;
 
-      if Trace_Parse > Extra or Trace_Action > Extra then
+      if Trace_Parse > Extra or Trace_Action > Detail then
          Parser.Tree.Lexer.Trace.Put_Line ("post-parse tree:");
          Parser.Tree.Lexer.Trace.Put_Line
            (Parser.Tree.Image
@@ -1052,11 +1076,12 @@ package body WisiToken.Parse.LR.Parser is
                end;
                Parser.Tree.Clear_Augmented;
             else
-               Parser.Tree.Validate_Tree (Parser.User_Data.all, Error_Reported, Node_Index_Order => False);
+               Parser.Tree.Validate_Tree
+                 (Parser.User_Data.all, Error_Reported, Node_Index_Order => not Incremental_Parse);
             end if;
 
             if Error_Reported.Count /= 0 then
-               raise WisiToken.Parse_Error with "parser: validate_tree failed";
+               raise WisiToken.Validate_Error with "parser: validate_tree failed";
             end if;
          end;
       end if;
@@ -1742,7 +1767,7 @@ package body WisiToken.Parse.LR.Parser is
                                           Inserted  => True,
                                           Start     => True);
 
-                                       if Tree.ID (Prev_Terminal) = Tree.ID (Node) and then
+                                       if Tree.ID (Prev_Terminal.Node) = Tree.ID (Node) and then
                                          Tree.Byte_Region (Prev_Terminal, Trailing_Non_Grammar => False).Last + 1 =
                                          Node_Byte_Region.First and then
                                          Tree.Lexer.Escape_Delimiter_Doubled (Node_ID)
@@ -1861,7 +1886,7 @@ package body WisiToken.Parse.LR.Parser is
                      --  partly past or adjacent to Stable_Region.Last. Also exit when last
                      --  KMN is done.
                      exit Unchanged_Loop when
-                       Tree.ID (Terminal) /= Tree.Lexer.Descriptor.SOI_ID and then
+                       Tree.ID (Terminal.Node) /= Tree.Lexer.Descriptor.SOI_ID and then
                        (if Length (Inserted_Region) = 0 and Length (Deleted_Region) = 0
                         then Tree.Byte_Region (Terminal.Node, Trailing_Non_Grammar => False).Last >
                           Stable_Region.Last -- Last KMN
@@ -2180,7 +2205,7 @@ package body WisiToken.Parse.LR.Parser is
 
                               if Trace_Incremental_Parse > Detail then
                                  Tree.Lexer.Trace.Put_Line
-                                   ("float non_grammar " & Lexer.Full_Image (Token, Tree.Lexer.Descriptor.all));
+                                   ("float non_grammar.1 " & Lexer.Full_Image (Token, Tree.Lexer.Descriptor.all));
                               end if;
                            end case;
                         end;
@@ -2490,13 +2515,13 @@ package body WisiToken.Parse.LR.Parser is
                               Do_Scan        := True;
                               Lex_Start_Byte := Inserted_Region.First;
                               Lex_Start_Char := Inserted_Region_Chars.First;
-                              Lex_Start_Line := Tree.Line_Region (Terminal, Trailing_Non_Grammar => False).First;
+                              Lex_Start_Line := Tree.Line_At_Node (Terminal, Tree.Shared_Stream);
                               Scan_End       := Data.Scan_End;
                            else
                               Do_Scan        := True;
                               Lex_Start_Byte := Terminal_Byte_Region.First;
                               Lex_Start_Char := Tree.Char_Region (Data.Node, Trailing_Non_Grammar => False).First;
-                              Lex_Start_Line := Tree.Line_Region (Terminal, Trailing_Non_Grammar => False).First;
+                              Lex_Start_Line := Tree.Line_At_Node (Terminal, Tree.Shared_Stream);
                               Scan_End       := Data.Scan_End;
                            end if;
                         end;
@@ -2520,7 +2545,7 @@ package body WisiToken.Parse.LR.Parser is
                         Do_Scan        := True;
                         Lex_Start_Byte := Tree.Byte_Region (Data.Node, Trailing_Non_Grammar => False).First;
                         Lex_Start_Char := Tree.Char_Region (Data.Node, Trailing_Non_Grammar => False).First;
-                        Lex_Start_Line := Tree.Line_Region (Ref, Trailing_Non_Grammar => False).First;
+                        Lex_Start_Line := Tree.Line_At_Node (Ref, Tree.Shared_Stream);
                         Scan_End       := Data.Scan_End;
 
                         if Terminal_Non_Grammar_Next /= Lexer.Token_Arrays.No_Index then
@@ -2616,9 +2641,7 @@ package body WisiToken.Parse.LR.Parser is
                               Lex_Start_Line :=
                                 (if Terminal_Non_Grammar_Next > Non_Grammar.First_Index
                                  then Non_Grammar (Terminal_Non_Grammar_Next - 1).Line_Region.Last
-                                 else Tree.Line_Region
-                                   (Tree.Prev_Source_Terminal (Terminal, Trailing_Non_Grammar => True),
-                                    Trailing_Non_Grammar => True).Last);
+                                 else Tree.Line_At_Node (Terminal, Tree.Shared_Stream));
                               Do_Scan := True;
                            else
                               --  Edit start is in or just after Token
@@ -2663,13 +2686,13 @@ package body WisiToken.Parse.LR.Parser is
                                     Delayed_Lex_Start_Line := Lex_Start_Line;
                                     if Trace_Incremental_Parse > Detail then
                                        Tree.Lexer.Trace.Put_Line
-                                         ("scan delayed" & Lex_Start_Byte'Image &
+                                         ("scan delayed 1" & Lex_Start_Byte'Image &
                                             (if Scan_End /= Invalid_Buffer_Pos
                                              then " .." & Scan_End'Image
                                              else ""));
                                        if Trace_Incremental_Parse > Extra then
                                           Tree.Lexer.Trace.Put_Line
-                                            ("float non_grammar" & I'Image & ":" &
+                                            ("float non_grammar.2" & I'Image & ":" &
                                                Lexer.Full_Image (Non_Grammar (I), Tree.Lexer.Descriptor.all));
                                        end if;
                                     end if;
@@ -2695,7 +2718,7 @@ package body WisiToken.Parse.LR.Parser is
                                  Floating_Non_Grammar.Append (Non_Grammar (I));
                                  if Trace_Incremental_Parse > Extra then
                                     Tree.Lexer.Trace.Put_Line
-                                      ("float non_grammar" & I'Image & ":" &
+                                      ("float non_grammar.3" & I'Image & ":" &
                                          Lexer.Full_Image (Non_Grammar (I), Tree.Lexer.Descriptor.all));
                                  end if;
                                  Last_Floated := I;
@@ -2712,7 +2735,7 @@ package body WisiToken.Parse.LR.Parser is
                         if Trace_Incremental_Parse > Detail then
                            if Last_Floated /= Lexer.Token_Arrays.No_Index then
                               Tree.Lexer.Trace.Put_Line
-                                ("float non_grammar" & Terminal_Non_Grammar_Next'Image & " .." &
+                                ("float non_grammar.4" & Terminal_Non_Grammar_Next'Image & " .." &
                                    Last_Floated'Image);
                            end if;
                         end if;
@@ -2734,8 +2757,7 @@ package body WisiToken.Parse.LR.Parser is
                            Lex_Start_Char := Tree.Char_Region (Terminal.Node, Trailing_Non_Grammar => False).First +
                              Shift_Chars;
 
-                           --  Line_Region.First is from prev_terminal.non_grammar, which is shifted
-                           Lex_Start_Line := Tree.Line_Region (Terminal, Trailing_Non_Grammar => False).First;
+                           Lex_Start_Line := Tree.Line_At_Node (Terminal, Tree.Shared_Stream);
                         else
                            --  We never re-scan eoi; we just shift it.
                            null;
@@ -2746,8 +2768,7 @@ package body WisiToken.Parse.LR.Parser is
                         Lex_Start_Char := Tree.Char_Region (Terminal.Node, Trailing_Non_Grammar => False).First +
                           Shift_Chars;
 
-                        --  Line_Region.First is from prev_terminal.non_grammar, which is shifted
-                        Lex_Start_Line := Tree.Line_Region (Terminal, Trailing_Non_Grammar => False).First;
+                        Lex_Start_Line := Tree.Line_At_Node (Terminal, Tree.Shared_Stream);
 
                         if Tree.Lexer.Is_Block_Delimited (Tree.ID (Terminal.Node)) then
                            Check_Scan_End (Terminal.Node);
@@ -2980,7 +3001,7 @@ package body WisiToken.Parse.LR.Parser is
                      Delayed_Lex_Start_Line := Lex_Start_Line;
 
                      if Trace_Incremental_Parse > Detail then
-                        Tree.Lexer.Trace.Put_Line ("scan delayed");
+                        Tree.Lexer.Trace.Put_Line ("scan delayed 2");
                      end if;
                   end if;
                end if;
@@ -3167,7 +3188,7 @@ package body WisiToken.Parse.LR.Parser is
                        (if Tree.Byte_Region (Terminal.Node, Trailing_Non_Grammar => False).First <= Stable_Region.Last
                         then -KMN.Deleted_Bytes + KMN.Inserted_Bytes else 0) > Scanned_Byte_Pos;
 
-                     if Tree.ID (Terminal) = Tree.Lexer.Descriptor.SOI_ID then
+                     if Tree.ID (Terminal.Node) = Tree.Lexer.Descriptor.SOI_ID then
                         Tree.Next_Terminal (Terminal);
 
                      else
@@ -3203,7 +3224,7 @@ package body WisiToken.Parse.LR.Parser is
                               else
                                  if Trace_Incremental_Parse > Detail then
                                     Tree.Lexer.Trace.Put_Line
-                                      ("float non_grammar " & Lexer.Full_Image (Token, Tree.Lexer.Descriptor.all));
+                                      ("float non_grammar.5 " & Lexer.Full_Image (Token, Tree.Lexer.Descriptor.all));
                                  end if;
                                  Floating_Non_Grammar.Append (Token);
                               end if;
@@ -3251,7 +3272,7 @@ package body WisiToken.Parse.LR.Parser is
                   begin
                      loop
                         if Searching_Back then
-                           if Tree.ID (Terminal) = Tree.Lexer.Descriptor.SOI_ID then
+                           if Tree.ID (Terminal.Node) = Tree.Lexer.Descriptor.SOI_ID then
                               return Terminal;
                            end if;
 
@@ -3434,88 +3455,5 @@ package body WisiToken.Parse.LR.Parser is
       Edits            : in     KMN_Lists.List := KMN_Lists.Empty_List;
       Pre_Edited       : in     Boolean        := False)
    is separate;
-
-   overriding procedure Execute_Actions
-     (Parser              : in out LR.Parser.Parser;
-      Action_Region_Bytes : in     WisiToken.Buffer_Region)
-   is
-      use all type Syntax_Trees.Post_Parse_Action;
-      use all type Syntax_Trees.User_Data_Access;
-
-      procedure Process_Node
-        (Tree : in out Syntax_Trees.Tree;
-         Node : in     Syntax_Trees.Valid_Node_Access)
-      is
-         use all type Syntax_Trees.Node_Label;
-         Node_Byte_Region : constant Buffer_Region := Tree.Byte_Region
-           (Node, Trailing_Non_Grammar => True);
-      begin
-         if Tree.Label (Node) /= Nonterm or else
-           not (Node_Byte_Region = Null_Buffer_Region or
-                  Overlaps (Node_Byte_Region, Action_Region_Bytes))
-         then
-            return;
-         end if;
-
-         for Child of Tree.Children (Node) loop
-            if Child /= Syntax_Trees.Invalid_Node_Access then
-               --  Child can be null in an edited tree
-               Process_Node (Tree, Child);
-            end if;
-         end loop;
-
-         Parser.User_Data.Reduce (Tree, Node);
-         declare
-            Post_Parse_Action : constant Syntax_Trees.Post_Parse_Action := Parser.Get_Post_Parse_Action
-              (Tree.Production_ID (Node));
-         begin
-            if Post_Parse_Action /= null then
-               begin
-                  Post_Parse_Action (Parser.User_Data.all, Tree, Node);
-               exception
-               when E : others =>
-                  if WisiToken.Debug_Mode then
-                     Parser.Tree.Lexer.Trace.Put_Line
-                       (Ada.Exceptions.Exception_Name (E) & ": " & Ada.Exceptions.Exception_Message (E));
-                     Parser.Tree.Lexer.Trace.Put_Line (GNAT.Traceback.Symbolic.Symbolic_Traceback (E));
-                     Parser.Tree.Lexer.Trace.New_Line;
-                  end if;
-
-                  raise WisiToken.Parse_Error with Tree.Error_Message
-                    (Node,
-                     "action raised exception " & Ada.Exceptions.Exception_Name (E) & ": " &
-                       Ada.Exceptions.Exception_Message (E));
-               end;
-            end if;
-         end;
-      end Process_Node;
-
-   begin
-      if Parser.User_Data = null then
-         return;
-      end if;
-
-      if Parser.Tree.Root = Syntax_Trees.Invalid_Node_Access then
-         --  No code in file, and error recovery failed to insert valid code.
-         --  Or ambiguous parse; Finish_Parse not called.
-         return;
-      end if;
-
-      Parser.User_Data.Initialize_Actions (Parser.Tree);
-
-      Process_Node (Parser.Tree, Parser.Tree.Root);
-   exception
-   when WisiToken.Parse_Error =>
-      raise;
-
-   when E : others =>
-      if Debug_Mode then
-         Parser.Tree.Lexer.Trace.Put_Line
-           (Ada.Exceptions.Exception_Name (E) & ": " & Ada.Exceptions.Exception_Message (E));
-         Parser.Tree.Lexer.Trace.Put_Line (GNAT.Traceback.Symbolic.Symbolic_Traceback (E));
-         Parser.Tree.Lexer.Trace.New_Line;
-      end if;
-      raise;
-   end Execute_Actions;
 
 end WisiToken.Parse.LR.Parser;

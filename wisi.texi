@@ -25,7 +25,7 @@ developing GNU and promoting software freedom.''
 
 @titlepage
 @sp 10
-@title Wisi Version 4.0.beta
+@title Wisi Version 4.1.1
 @page
 @vskip 0pt plus 1filll
 @insertcopying
@@ -37,7 +37,7 @@ developing GNU and promoting software freedom.''
 @node Top
 @top Top
 
-Wisi Version 4.0.beta
+Wisi Version 4.1.1
 @end ifnottex
 
 @menu
@@ -828,10 +828,10 @@ indenting the comment with the last line of the expression.
 
 @item statements: [(wisi-block ada-indent) ada-indent]
 Applies a delta indent of 3 to the code and comment on lines 5 thru
-10, and 3 to the trailing comment on lines 11 and
-12. @code{wisi-block} says to ignore the controlling token line; that
-is 5, so this would be ignored for line 6; this is why we need
-@code{wisi-block}. The delta is ignored for the Anchored line 7.
+10, and 3 to the trailing comment on lines 11 and 12. The controlling
+token line is 5, so this delta would be ignored for line 6; this is
+why we need @code{wisi-block}, which sets controlling token line to
+invalid. The delta is ignored for the Anchored line 7.
 
 Note that the indent for comments after statements is given here, not
 at a lower level; it would be tedious to add it to each statement.
@@ -957,10 +957,20 @@ add more.
 
 @table @asis
 @item @code{casing}         [slot: @code{case-exception-files}]
-List of files containing casing exceptions. @xref{Casing exception files}.
+List of files containing casing exceptions, either absolute, relative
+to the project file directory, or found on the project file
+path. @xref{Casing exception files}.
+
+@item @code{import_env_var} [slot: @code{file-env}]
+Copies an environment variable from @code{process-environment}.
 
 @item @code{src_dir}        [slot: @code{source-path}]
 A list of directories to search for source files.
+
+@item @code{$<name>}        [slot: @code{file-env}]
+Set an environment variable @code{name} in the local @code{file-env};
+it may be referenced in subsequent project file statements, and in
+processes spawned by the project.
 
 @end table
 

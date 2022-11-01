@@ -33,7 +33,7 @@ section entitled "GNU Free Documentation License".
 @contents
 
 @node Top
-@top WisiToken User Guide version 3.0
+@top WisiToken User Guide version 4.0
 
 @ifnottex
 @insertcopying

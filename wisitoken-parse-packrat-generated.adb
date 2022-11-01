@@ -28,27 +28,18 @@ package body WisiToken.Parse.Packrat.Generated is
       pragma Unreferenced (Log_File, Pre_Edited);
       use all type WisiToken.Syntax_Trees.User_Data_Access;
       use all type Ada.Containers.Count_Type;
-      Descriptor : WisiToken.Descriptor renames Parser.Tree.Lexer.Descriptor.all;
-
-      Result : Memo_Entry;
+      Trace      : WisiToken.Trace'Class renames Parser.Tree.Lexer.Trace.all;
+      Result     : Memo_Entry;
    begin
       if Edits.Length > 0 then
          raise WisiToken.Parse_Error;
       end if;
 
-      for Deriv of Parser.Derivs loop
-         for Memo of Deriv loop
-            case Memo.State is
-            when No_Result | Failure =>
-               null;
-            when Success =>
-               Memo.Last_Pos := Syntax_Trees.Invalid_Stream_Index;
-            end case;
-         end loop;
-      end loop;
+      if Trace_Time then
+         Trace.Put_Clock ("start");
+      end if;
 
-      Parser.Derivs.Set_First_Last (Descriptor.First_Nonterminal, Descriptor.Last_Nonterminal);
-
+      Clear (Parser.Derivs);
       Parser.Tree.Clear;
 
       if Parser.User_Data /= null then
@@ -56,31 +47,13 @@ package body WisiToken.Parse.Packrat.Generated is
       end if;
       Parser.Lex_All; -- Creates Tree.Shared_Stream
 
-      --  WORKAROUND: there appears to be a bug in GNAT Community 2021 that makes
-      --  ref_count fail in this usage. May be related to AdaCore ticket V107-045.
+      --  FIXME: ref_count fails in this usage; works in procedural.
       Parser.Tree.Enable_Ref_Count_Check (Parser.Tree.Shared_Stream, Enable => False);
-
-      for Nonterm in Descriptor.First_Nonterminal .. Descriptor.Last_Nonterminal loop
-         Parser.Derivs (Nonterm).Clear (Free_Memory => True);
-         Parser.Derivs (Nonterm).Set_First_Last
-           (Parser.Tree.Get_Node_Index
-              (Parser.Tree.Shared_Stream, Parser.Tree.Stream_First (Parser.Tree.Shared_Stream, Skip_SOI => True)),
-            Parser.Tree.Get_Node_Index
-              (Parser.Tree.Shared_Stream, Parser.Tree.Stream_Last (Parser.Tree.Shared_Stream, Skip_EOI => False)));
-      end loop;
 
       Result := Parser.Parse_WisiToken_Accept
         (Parser, Parser.Tree.Stream_First (Parser.Tree.Shared_Stream, Skip_SOI => False));
 
-      if Result.State /= Success then
-         if Trace_Parse > Outline then
-            Parser.Tree.Lexer.Trace.Put_Line ("parse failed");
-         end if;
-
-         raise Syntax_Error with "parse failed"; --  FIXME packrat: need better error message!
-      else
-         Parser.Tree.Set_Root (Result.Result);
-      end if;
+      Parser.Finish_Parse (Result);
 
    end Parse;
 

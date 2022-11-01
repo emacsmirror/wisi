@@ -2,7 +2,7 @@
 --
 --  Generalized LALR parse table generator.
 --
---  Copyright (C) 2002 - 2003, 2009 - 2010, 2013 - 2015, 2017 - 2020 Free Software Foundation, Inc.
+--  Copyright (C) 2002 - 2003, 2009 - 2010, 2013 - 2015, 2017 - 2020, 2022 Free Software Foundation, Inc.
 --
 --  This file is part of the WisiToken package.
 --
@@ -28,14 +28,15 @@ package WisiToken.Generate.LR.LALR_Generate is
      (Grammar               : in out WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor            : in     WisiToken.Descriptor;
       Grammar_File_Name     : in     String;
-      Known_Conflicts       : in     Conflict_Lists.Tree := Conflict_Lists.Empty_Tree;
-      McKenzie_Param        : in     McKenzie_Param_Type := Default_McKenzie_Param;
-      Max_Parallel          : in     SAL.Base_Peek_Type  := 15;
-      Parse_Table_File_Name : in     String              := "";
-      Include_Extra         : in     Boolean             := False;
-      Ignore_Conflicts      : in     Boolean             := False;
-      Partial_Recursion     : in     Boolean             := True;
-      Use_Cached_Recursions : in     Boolean             := False;
+      Error_Recover         : in     Boolean;
+      Known_Conflicts       : in     Conflict_Lists.Tree          := Conflict_Lists.Empty_Tree;
+      McKenzie_Param        : in     McKenzie_Param_Type          := Default_McKenzie_Param;
+      Max_Parallel          : in     SAL.Base_Peek_Type           := 15;
+      Parse_Table_File_Name : in     String                       := "";
+      Include_Extra         : in     Boolean                      := False;
+      Ignore_Conflicts      : in     Boolean                      := False;
+      Recursion_Strategy    : in     WisiToken.Recursion_Strategy := Full;
+      Use_Cached_Recursions : in     Boolean                      := False;
       Recursions            : in out WisiToken.Generate.Recursions)
      return Parse_Table_Ptr
    with Pre =>

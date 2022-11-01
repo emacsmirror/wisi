@@ -14,7 +14,7 @@
 --  [warth 2008]  Warth, A., Douglass, J.R. and Millstein, T.D., 2008. Packrat
 --                parsers can support left recursion. PEPM, 8, pp.103-110.
 --
---  Copyright (C) 2018, 2020 - 2021 Free Software Foundation, Inc.
+--  Copyright (C) 2018, 2020 - 2022 Free Software Foundation, Inc.
 --
 --  This library is free software;  you can redistribute it and/or modify it
 --  under terms of the  GNU General Public License  as published by the Free
@@ -47,19 +47,109 @@ pragma License (Modified_GPL);
 with WisiToken.Syntax_Trees;
 package WisiToken.Parse.Packrat is
 
-   type Parser is abstract new Base_Parser with null record;
+   type Memo_State is (No_Result, Failure, Success);
+   subtype Result_States is Memo_State range Failure .. Success;
 
-   overriding
-   procedure Execute_Actions
-     (Parser              : in out Packrat.Parser;
-      Action_Region_Bytes : in     WisiToken.Buffer_Region := WisiToken.Null_Buffer_Region);
+   type Memo_Entry (State : Memo_State := No_Result) is record
+      Max_Examined_Pos : Syntax_Trees.Stream_Index;
+      --  For error message.
 
-   function Image_Pos
-     (Tree    : in Syntax_Trees.Tree;
-      Stream  : in Syntax_Trees.Stream_ID;
-      Element : in Syntax_Trees.Stream_Index)
-     return String
-   with Pre => Tree.Contains (Stream, Element);
+      case State is
+      when No_Result =>
+         Recursive : Boolean := False;
+
+      when Failure =>
+         null;
+
+      when Success =>
+         Result   : Syntax_Trees.Node_Access;
+         Last_Pos : Syntax_Trees.Stream_Index; -- Last terminal in Result
+
+      end case;
+   end record;
+   subtype Success_Memo_Entry is Memo_Entry (Success);
+   subtype Result_Type is Memo_Entry with Dynamic_Predicate => Result_Type.State in Result_States;
+
+   No_Result_Memo : constant Memo_Entry := (No_Result, WisiToken.Syntax_Trees.Invalid_Stream_Index, False);
+
+   function Image_Pos (Element : in Syntax_Trees.Stream_Index) return String;
    --  "0" for Invalid_Stream_Index, Node_Index'Image otherwise.
+
+   function Image (Item : in Memo_Entry; Tree : in Syntax_Trees.Tree) return String;
+
+   function Image
+     (Item      : in Memo_Entry;
+      Nonterm   : in Token_ID;
+      Pos       : in Syntax_Trees.Node_Index;
+      Tree      : in Syntax_Trees.Tree)
+     return String;
+
+   function Image
+     (Item      : in Memo_Entry;
+      Nonterm   : in Token_ID;
+      RHS_Index : in Natural;
+      Pos       : in Syntax_Trees.Node_Index;
+      Tree      : in Syntax_Trees.Tree)
+     return String;
+
+   function Image
+     (Item      : in Memo_Entry;
+      Nonterm   : in Token_ID;
+      Pos       : in Syntax_Trees.Stream_Index;
+      Tree      : in Syntax_Trees.Tree)
+     return String;
+
+   function Image
+     (Item      : in Memo_Entry;
+      Nonterm   : in Token_ID;
+      RHS_Index : in Natural;
+      Pos       : in Syntax_Trees.Stream_Index;
+      Tree      : in Syntax_Trees.Tree)
+     return String;
+
+   subtype Positive_Node_Index is Syntax_Trees.Node_Index range 1 .. Syntax_Trees.Node_Index'Last;
+   package Memos is new SAL.Gen_Unbounded_Definite_Vectors
+     (Positive_Node_Index, Memo_Entry, Default_Element => (others => <>));
+   --  Memos is indexed by Node_Index of terminals in Shared_Stream
+   --  (incremental parse is not supported).
+
+   type Derivs is array (Token_ID range <>) of Memos.Vector;
+
+   procedure Clear (Derivs : in out Packrat.Derivs);
+   --  Free memory allocated by Derivs; set all to Empty_Vector.
+
+   function Get_Deriv
+     (Derivs  : in out Packrat.Derivs;
+      Nonterm : in     Token_ID;
+      Pos     : in     Positive_Node_Index)
+     return Memo_Entry;
+   --  Return Derivs (Nonterm)(Pos) if present; No_Result_Memo if not.
+
+   procedure Set_Deriv
+     (Derivs  : in out Packrat.Derivs;
+      Nonterm : in     Token_ID;
+      Pos     : in     Positive_Node_Index;
+      Memo    : in     Memo_Entry);
+   --  Add or replace Derivs (Nonterm)(Pos).
+
+   type Parser (First_Nonterminal, Last_Nonterminal : Token_ID) is abstract new WisiToken.Parse.Base_Parser with
+   record
+      Direct_Left_Recursive : Token_ID_Set (First_Nonterminal .. Last_Nonterminal);
+      Derivs                : Packrat.Derivs (First_Nonterminal .. Last_Nonterminal);
+   end record;
+
+   overriding procedure Finalize (Object : in out Parser);
+
+   procedure Finish_Parse
+     (Parser : in out Packrat.Parser'Class;
+      Result : in out Memo_Entry);
+   --  If a single parser succeeded, leaves Parser.Tree in
+   --  Fully_Parsed state.
+   --
+   --  If there were recovered errors, the error information is in
+   --  Parser.Tree.
+   --
+   --  If the parse did not succeed, raise Parse_Error with an error
+   --  message, and Parser.Parsers is left intact for error recover.
 
 end WisiToken.Parse.Packrat;

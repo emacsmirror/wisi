@@ -37,7 +37,6 @@ with WisiToken.BNF.Output_Ada_Emacs;
 with WisiToken.BNF.Output_Elisp_Common;
 with WisiToken.Generate.LR.LALR_Generate;
 with WisiToken.Generate.LR.LR1_Generate;
-with WisiToken.Generate.LR1_Items;
 with WisiToken.Generate.Packrat;
 with WisiToken.Parse.LR.Parser_No_Recover; -- for reading BNF file
 with WisiToken.Productions;
@@ -49,12 +48,14 @@ with WisiToken_Grammar_Runtime;
 with Wisitoken_Grammar_Main;
 procedure WisiToken.BNF.Generate
 is
+   use all type SAL.Base_Peek_Type;
+
    procedure Put_Usage
    is
       use Ada.Text_IO;
       First : Boolean := True;
    begin
-      Put_Line (Standard_Error, "version 3.0"); -- matches release version in Docs/wisitoken.html
+      Put_Line (Standard_Error, "version 4.0"); -- matches release version in Docs/wisitoken.html
       Put_Line (Standard_Error, "wisitoken-bnf-generate [options] {wisi grammar file}");
       Put_Line (Standard_Error, "Generate source code implementing a parser for the grammar.");
       New_Line (Standard_Error);
@@ -122,8 +123,7 @@ is
                 "  --test_main; generate standalone main program for running the generated parser, modify file names");
       Put_Line (Standard_Error,
                 "  --task_count n; number of tasks used to compute LR1 items; 0 means CPU count." &
-                  " Default 1 unless %lr1_hash_table_size specified; then 0.");
-      Put_Line (Standard_Error, "  --lr1_hash_table_size n; default 113; bigger should be faster");
+                  " Default 1.");
       Put_Line (Standard_Error, "verbosity keys:");
       Enable_Trace_Help;
    end Put_Usage;
@@ -141,7 +141,8 @@ is
 
    Trace          : aliased WisiToken.Text_IO_Trace.Trace;
    Input_Data     : aliased WisiToken_Grammar_Runtime.User_Data_Type;
-   Grammar_Parser : WisiToken.Parse.LR.Parser_No_Recover.Parser;
+   Grammar_Parser : WisiToken.Parse.LR.Parser_No_Recover.Parser := Wisitoken_Grammar_Main.Create_Parser
+     (Trace'Unchecked_Access, Input_Data'Unchecked_Access);
    Log_File       : Ada.Text_IO.File_Type; -- not used
 
    procedure Use_Input_File (File_Name : in String)
@@ -150,11 +151,6 @@ is
       use Ada.Text_IO;
    begin
       Output_File_Name_Root := +Ada.Directories.Base_Name (File_Name) & Suffix;
-
-      WisiToken.Parse.LR.Parser_No_Recover.New_Parser
-        (Grammar_Parser, Wisitoken_Grammar_Main.Create_Lexer (Trace'Unchecked_Access),
-         Wisitoken_Grammar_Main.Create_Parse_Table, Wisitoken_Grammar_Main.Create_Productions,
-         Input_Data'Unchecked_Access);
 
       Grammar_Parser.Tree.Lexer.Reset_With_File (File_Name);
 
@@ -245,16 +241,6 @@ begin
                Add (Command_Generate_Set, Tuple);
             end;
 
-         elsif Argument (Arg_Next) = "--lr1_hash_table_size" then
-            Arg_Next := Arg_Next + 1;
-
-            Input_Data.Language_Params.LR1_Hash_Table_Size := Positive'Value (Argument (Arg_Next));
-            if not Generate_Task_Count_Set then
-               Generate_Task_Count := 0;
-            end if;
-
-            Arg_Next := Arg_Next + 1;
-
          elsif Argument (Arg_Next) = "--output_bnf" then
             Output_BNF := True;
             Arg_Next   := Arg_Next + 1;
@@ -299,7 +285,7 @@ begin
    end if;
 
    begin
-      Grammar_Parser.Parse (Log_File); -- Execute_Actions only does meta phase
+      Grammar_Parser.Parse (Log_File);
    exception
    when WisiToken.Syntax_Error =>
       if Grammar_Parser.Tree.Parents_Set then
@@ -434,7 +420,7 @@ begin
                      Trace.Put_Line ("post-parse grammar file OTHER, bnf tree");
                   end if;
 
-                  WisiToken.Parse.LR.Parser_No_Recover.Execute_Actions
+                  WisiToken.Parse.Execute_Actions
                     (BNF_Tree, Grammar_Parser.Productions, Input_Data'Unchecked_Access);
                end if;
 
@@ -536,14 +522,12 @@ begin
                Parser => Tuple.Gen_Alg,
                Phase  => WisiToken_Grammar_Runtime.Other);
 
-            if Input_Data.Language_Params.LR1_Hash_Table_Size /=
-              WisiToken.Generate.LR1_Items.Item_Set_Trees.Default_Rows and
-              not Generate_Task_Count_Set
-            then
+            if not Generate_Task_Count_Set then
                Generate_Task_Count := System.Multiprocessors.Number_Of_CPUs;
             end if;
 
             declare
+               use all type WisiToken.Parse.LR.Parse_Table_Ptr;
                use Ada.Real_Time;
 
                Time_Start : Time;
@@ -617,13 +601,14 @@ begin
                        (Generate_Data.Grammar,
                         Generate_Data.Descriptor.all,
                         Grammar_Parser.Tree.Lexer.File_Name,
+                        Input_Data.Language_Params.Error_Recover,
                         Generate_Data.Conflicts,
                         Generate_Utils.To_McKenzie_Param (Generate_Data, Input_Data.McKenzie_Recover),
                         Input_Data.Max_Parallel,
                         Parse_Table_File_Name,
                         Include_Extra         => Test_Main,
                         Ignore_Conflicts      => Ignore_Conflicts,
-                        Partial_Recursion     => Input_Data.Language_Params.Partial_Recursion,
+                        Recursion_Strategy    => Input_Data.Language_Params.Recursion_Strategy,
                         Use_Cached_Recursions => not (Input_Data.If_Lexer_Present or Input_Data.If_Parser_Present),
                         Recursions            => Cached_Recursions);
 
@@ -658,15 +643,15 @@ begin
                        (Generate_Data.Grammar,
                         Generate_Data.Descriptor.all,
                         Grammar_Parser.Tree.Lexer.File_Name,
+                        Input_Data.Language_Params.Error_Recover,
                         Generate_Data.Conflicts,
                         Generate_Utils.To_McKenzie_Param (Generate_Data, Input_Data.McKenzie_Recover),
                         Input_Data.Max_Parallel,
                         Parse_Table_File_Name,
                         Include_Extra         => Test_Main,
                         Ignore_Conflicts      => Ignore_Conflicts,
-                        Partial_Recursion     => Input_Data.Language_Params.Partial_Recursion,
+                        Recursion_Strategy    => Input_Data.Language_Params.Recursion_Strategy,
                         Task_Count            => Generate_Task_Count,
-                        Hash_Table_Size       => Input_Data.Language_Params.LR1_Hash_Table_Size,
                         Use_Cached_Recursions => not (Input_Data.If_Lexer_Present or Input_Data.If_Parser_Present),
                         Recursions            => Cached_Recursions);
 
@@ -721,6 +706,10 @@ begin
 
                case Tuple.Gen_Alg is
                when LR_Generate_Algorithm =>
+                  pragma Assert
+                    (Generate_Data.LR_Parse_Table /= null and then
+                     Generate_Data.LR_Parse_Table.Error_Recover_Enabled = Input_Data.Language_Params.Error_Recover);
+
                   if Tuple.Text_Rep then
                      WisiToken.Generate.LR.Put_Text_Rep
                        (Generate_Data.LR_Parse_Table.all,

@@ -22,7 +22,6 @@ with Ada.Exceptions;
 with Ada.Text_IO;
 with WisiToken.Generate; use WisiToken.Generate;
 with WisiToken.Syntax_Trees;
-with WisiToken.Text_IO_Trace;
 with WisiToken.Wisi_Ada;
 with WisiToken_Grammar_Editing;
 with Wisitoken_Grammar_Main;
@@ -308,15 +307,8 @@ package body WisiToken.BNF.Generate_Utils is
      (Grammar_Parser    : in out WisiToken.Parse.LR.Parser_No_Recover.Parser;
       Grammar_File_Name : in     String)
    is
-      Trace      : aliased WisiToken.Text_IO_Trace.Trace;
-      Input_Data : aliased WisiToken_Grammar_Runtime.User_Data_Type;
-      Log_File   : Ada.Text_IO.File_Type;
+      Log_File : Ada.Text_IO.File_Type;
    begin
-      WisiToken.Parse.LR.Parser_No_Recover.New_Parser
-        (Grammar_Parser, Wisitoken_Grammar_Main.Create_Lexer (Trace'Unchecked_Access),
-         Wisitoken_Grammar_Main.Create_Parse_Table, Wisitoken_Grammar_Main.Create_Productions,
-         Input_Data'Unchecked_Access);
-
       Grammar_Parser.Tree.Lexer.Reset_With_File (Grammar_File_Name);
 
       Grammar_Parser.Parse (Log_File);
@@ -340,14 +332,10 @@ package body WisiToken.BNF.Generate_Utils is
      return Generate_Data
    is
       use all type WisiToken_Grammar_Runtime.Meta_Syntax;
-      Grammar_Parser : WisiToken.Parse.LR.Parser_No_Recover.Parser;
+      Grammar_Parser : WisiToken.Parse.LR.Parser_No_Recover.Parser := Wisitoken_Grammar_Main.Create_Parser
+        (Trace'Unchecked_Access, Syntax_Trees.User_Data_Access (Input_Data));
       Log_File       : Ada.Text_IO.File_Type;
    begin
-      WisiToken.Parse.LR.Parser_No_Recover.New_Parser
-        (Grammar_Parser, Wisitoken_Grammar_Main.Create_Lexer (Trace'Unchecked_Access),
-         Wisitoken_Grammar_Main.Create_Parse_Table, Wisitoken_Grammar_Main.Create_Productions,
-         Syntax_Trees.User_Data_Access (Input_Data));
-
       Grammar_Parser.Tree.Lexer.Reset_With_File (Grammar_File_Name);
 
       Grammar_Parser.Parse (Log_File);

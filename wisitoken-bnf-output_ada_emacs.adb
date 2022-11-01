@@ -1655,13 +1655,10 @@ is
       Create (Body_File, Out_File, File_Name);
       Set_Output (Body_File);
       Indent := 1;
+
       Put_File_Header (Ada_Comment, Use_Tuple => True, Tuple => Tuple);
       Put_Raw_Code (Ada_Comment, Input_Data.Raw_Code (Copyright_License));
       New_Line;
-
-      if Input_Data.Action_Count > 0 or Input_Data.Check_Count > 0 then
-         Put_Line ("with " & Actions_Package_Name & "; use " & Actions_Package_Name & ";");
-      end if;
 
       case Common_Data.Lexer is
       when None | Tree_Sitter_Lexer =>
@@ -1676,14 +1673,21 @@ is
 
       case Common_Data.Generate_Algorithm is
       when LR_Generate_Algorithm =>
-         null;
+         if not Input_Data.Language_Params.Error_Recover then
+            Put_Line ("with WisiToken.Parse.LR;");
+         end if;
 
-      when Packrat_Generate_Algorithm =>
-         Put_Line ("with WisiToken.Parse;");
+      when Packrat_Proc =>
+         Put_Line ("with WisiToken.Productions;");
+
+      when Packrat_Gen =>
+         Put_Line ("with WisiToken.Parse.Packrat.Parser;");
 
       when External | Tree_Sitter =>
          null;
       end case;
+
+      Put_Line ("with " & Actions_Package_Name & "; use " & Actions_Package_Name & ";");
 
       Put_Line ("package body " & Main_Package_Name & " is");
       Indent := Indent + 3;
@@ -1699,8 +1703,9 @@ is
 
       case Common_Data.Generate_Algorithm is
       when LR_Generate_Algorithm =>
-         LR_Create_Create_Parse_Table (Input_Data, Common_Data, Generate_Data, Actions_Package_Name);
+         LR_Create_Create_Parse_Table (Input_Data, Common_Data, Generate_Data);
          Create_Create_Productions (Generate_Data);
+         LR_Create_Create_Parser (Actions_Package_Name, Common_Data, Generate_Data);
 
       when Packrat_Gen =>
          WisiToken.BNF.Generate_Packrat (Packrat_Data, Generate_Data);
@@ -1713,6 +1718,7 @@ is
 
       when External =>
          External_Create_Create_Grammar (Generate_Data);
+
       when Tree_Sitter =>
          null;
       end case;
@@ -1720,6 +1726,7 @@ is
       case Common_Data.Interface_Kind is
       when Process =>
          null;
+
       when Module =>
          Indent_Line ("Parser : LR_Parser.Instance;");
          New_Line;

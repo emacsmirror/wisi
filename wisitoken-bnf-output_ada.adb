@@ -287,7 +287,8 @@ is
 
    procedure Create_Ada_Main_Body
      (Actions_Package_Name : in String;
-      Main_Package_Name    : in String)
+      Main_Package_Name    : in String;
+      Input_Data           : in WisiToken_Grammar_Runtime.User_Data_Type)
    is
       use WisiToken.Generate;
 
@@ -314,22 +315,24 @@ is
          Put_Line ("with " & re2c_Package_Name & ";");
       end case;
 
-      Put_Line ("with " & Actions_Package_Name & "; use " & Actions_Package_Name & ";");
-
       case Common_Data.Generate_Algorithm is
-      when LR_Generate_Algorithm | Tree_Sitter =>
-         null;
-
-      when Packrat_Gen =>
-         Put_Line ("with WisiToken.Parse.Packrat.Generated;");
+      when LR_Generate_Algorithm =>
+         if not Input_Data.Language_Params.Error_Recover then
+            Put_Line ("with WisiToken.Parse.LR;");
+         end if;
 
       when Packrat_Proc =>
-         Put_Line ("with WisiToken.Parse.Packrat.Procedural;");
          Put_Line ("with WisiToken.Productions;");
 
-      when External =>
+      when Packrat_Gen =>
          null;
+
+      when External | Tree_Sitter =>
+         null;
+
       end case;
+
+      Put_Line ("with " & Actions_Package_Name & "; use " & Actions_Package_Name & ";");
 
       Put_Line ("package body " & Main_Package_Name & " is");
       Indent := Indent + 3;
@@ -345,8 +348,9 @@ is
 
       case Common_Data.Generate_Algorithm is
       when LR_Generate_Algorithm =>
-         LR_Create_Create_Parse_Table (Input_Data, Common_Data, Generate_Data, Actions_Package_Name);
+         LR_Create_Create_Parse_Table (Input_Data, Common_Data, Generate_Data);
          Create_Create_Productions (Generate_Data);
+         LR_Create_Create_Parser (Actions_Package_Name, Common_Data, Generate_Data);
 
       when Packrat_Gen =>
          WisiToken.BNF.Generate_Packrat (Packrat_Data, Generate_Data);
@@ -385,9 +389,10 @@ is
                then "Gen_LR_Text_Rep_Parser_No_Recover_Run"
                else "Gen_LR_Parser_No_Recover_Run")),
 
-         when Packrat_Generate_Algorithm => "Gen_Packrat_Parser_Run",
-         when External => raise SAL.Programmer_Error,
-         when Tree_Sitter => "Gen_Tree_Sitter_Parser_Run");
+         when Packrat_Proc          => "Gen_Packrat_Proc_Parser_Run",
+         when Packrat_Gen           => "Gen_Packrat_Gen_Parser_Run",
+         when External              => raise SAL.Programmer_Error,
+         when Tree_Sitter           => "Gen_Tree_Sitter_Parser_Run");
 
       Unit_Name : constant String := File_Name_To_Ada (Output_File_Name_Root) & Gen_Alg_Name & "_Run";
 
@@ -441,9 +446,7 @@ is
                Put_Line ("   null, null, null,");
             end if;
          end if;
-         Put_Line ("   " & Main_Package_Name & ".Create_Parse_Table,");
-         Put_Line ("   " & Main_Package_Name & ".Create_Productions,");
-         Put_Line ("   " & Main_Package_Name & ".Create_Lexer);");
+         Put_Line ("   " & Main_Package_Name & ".Create_Parser);");
 
       when Packrat_Generate_Algorithm | Tree_Sitter =>
          Put_Line ("   " & Main_Package_Name & ".Create_Parser);");
@@ -480,9 +483,9 @@ begin
 
       if Tuple.Gen_Alg = External then
          Create_External_Main_Spec (Main_Package_Name, Tuple, Input_Data);
-         Create_Ada_Main_Body (Actions_Package_Name, Main_Package_Name);
+         Create_Ada_Main_Body (Actions_Package_Name, Main_Package_Name, Input_Data);
       else
-         Create_Ada_Main_Body (Actions_Package_Name, Main_Package_Name);
+         Create_Ada_Main_Body (Actions_Package_Name, Main_Package_Name, Input_Data);
 
          Create_Ada_Main_Spec (To_Lower (Main_Package_Name) & ".ads", Main_Package_Name, Input_Data, Common_Data);
 

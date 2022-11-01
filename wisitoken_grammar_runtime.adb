@@ -730,10 +730,6 @@ package body WisiToken_Grammar_Runtime is
                Data.Language_Params.Language_Runtime_Name :=
                  +Get_Text (Data, Tree, Tree.Child (Nonterm, 3), Strip_Quotes => True);
 
-            elsif Kind = "lr1_hash_table_size" then
-               Data.Language_Params.LR1_Hash_Table_Size :=
-                 Positive'Value (Get_Text (Data, Tree, Tree.Child (Nonterm, 3), Strip_Quotes => True));
-
             elsif Kind = "max_parallel" then
                Data.Max_Parallel := SAL.Base_Peek_Type'Value (Get_Text (Data, Tree, Tree.Child (Nonterm, 3)));
 
@@ -813,10 +809,11 @@ package body WisiToken_Grammar_Runtime is
                Data.Language_Params.Use_Language_Runtime := False;
 
             elsif Kind = "no_error_recover" then
-               Data.Language_Params.Error_Recover := False;
+               Data.Language_Params.Error_Recover      := False;
+               Data.Language_Params.Recursion_Strategy := None;
 
             elsif Kind = "partial_recursion" then
-               Data.Language_Params.Partial_Recursion := True;
+               Data.Language_Params.Recursion_Strategy := Partial;
 
             elsif Kind = "start" then
                Data.Language_Params.Start_Token := +Get_Text (Data, Tree, Tree.Child (Nonterm, 3));

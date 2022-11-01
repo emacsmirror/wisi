@@ -103,8 +103,9 @@ package SAL.Gen_Definite_Doubly_Linked_Lists is
      return Cursor;
    --  If Before is No_Element, insert after Last.
 
-   function Persistent_Ref (Position : in Cursor) return access Element_Type
+   function Unchecked_Ref (Position : in Cursor) return access Element_Type
    with Pre => Has_Element (Position);
+   --  For building higher level containers
 
    type Constant_Reference_Type (Element : not null access constant Element_Type) is private with
      Implicit_Dereference => Element;

@@ -24,6 +24,22 @@ pragma License (Modified_GPL);
 
 package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
 
+   procedure Delete_Node (Container : in out List; Node : in out Node_Access)
+   is begin
+      if Node.Next = null then
+         Container.Tail := Node.Prev;
+      else
+         Node.Next.Prev := Node.Prev;
+      end if;
+      if Node.Prev = null then
+         Container.Head := Node.Next;
+      else
+         Node.Prev.Next := Node.Next;
+      end if;
+      Free (Node.Element);
+      Free (Node);
+   end Delete_Node;
+
    ---------
    --  Public operations, declaration order.
 
@@ -76,6 +92,14 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
    is begin
       return Container.Count;
    end Length;
+
+   procedure Delete_First (Container : in out List)
+   is
+      Node : Node_Access := Container.Head;
+   begin
+      Delete_Node (Container, Node);
+      Container.Count := Container.Count - 1;
+   end Delete_First;
 
    procedure Append (Container : in out List; Element : in Element_Type)
    is
@@ -190,21 +214,8 @@ package body SAL.Gen_Indefinite_Doubly_Linked_Lists is
    end Append;
 
    procedure Delete (Container : in out List; Position : in out Cursor)
-   is
-      Node : Node_Access renames Position.Ptr;
-   begin
-      if Node.Next = null then
-         Container.Tail := Node.Prev;
-      else
-         Node.Next.Prev := Node.Prev;
-      end if;
-      if Node.Prev = null then
-         Container.Head := Node.Next;
-      else
-         Node.Prev.Next := Node.Next;
-      end if;
-      Free (Node.Element);
-      Free (Node);
+   is begin
+      Delete_Node (Container, Position.Ptr);
       Position        := (Ptr => null);
       Container.Count := Container.Count - 1;
    end Delete;

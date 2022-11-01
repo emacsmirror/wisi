@@ -162,7 +162,9 @@ package body WisiToken.Lexer is
       First       : in Boolean)
      return Base_Buffer_Pos
    is begin
-      if Instance'Class (Lexer).Can_Contain_New_Line (ID) then
+      if ID = Lexer.Descriptor.New_Line_ID then
+         return Byte_Region.First;
+      elsif Instance'Class (Lexer).Can_Contain_New_Line (ID) then
          return Contains_New_Line (Lexer.Source, Byte_Region, First);
       else
          return Invalid_Buffer_Pos;

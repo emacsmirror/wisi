@@ -84,7 +84,9 @@ begin
          if Trace_Parse > Outline then
             Trace.Put_Line ("edited tree does not need parse; no or only non_grammar changes");
          end if;
-         Shared_Parser.Tree.Clear_Parse_Streams;
+         Shared_Parser.Tree.Set_Root
+           (Shared_Parser.Tree.Stream_First (Shared_Parser.Tree.Shared_Stream, Skip_SOI => True).Node);
+         Shared_Parser.Tree.Finish_Parse;
          Shared_Parser.Parsers.Clear;
          return;
       end if;
@@ -636,7 +638,7 @@ when Partial_Parse =>
       Trace.Put_Clock ("finish partial parse");
    end if;
 
-when Syntax_Error | WisiToken.Parse_Error =>
+when Syntax_Error | WisiToken.Parse_Error | WisiToken.Validate_Error =>
    if Trace_Time then
       Trace.Put_Clock ("finish - error");
    end if;

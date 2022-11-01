@@ -838,15 +838,15 @@ package body WisiToken.Generate.LR.LR1_Generate is
      (Grammar               : in out WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor            : in     WisiToken.Descriptor;
       Grammar_File_Name     : in     String;
+      Error_Recover         : in     Boolean;
       Known_Conflicts       : in     Conflict_Lists.Tree              := Conflict_Lists.Empty_Tree;
       McKenzie_Param        : in     McKenzie_Param_Type              := Default_McKenzie_Param;
       Max_Parallel          : in     SAL.Base_Peek_Type               := 15;
       Parse_Table_File_Name : in     String                           := "";
       Include_Extra         : in     Boolean                          := False;
       Ignore_Conflicts      : in     Boolean                          := False;
-      Partial_Recursion     : in     Boolean                          := True;
+      Recursion_Strategy    : in     WisiToken.Recursion_Strategy     := Full;
       Task_Count            : in     System.Multiprocessors.CPU_Range := 1;
-      Hash_Table_Size       : in     Positive                         := LR1_Items.Item_Set_Trees.Default_Rows;
       Use_Cached_Recursions : in     Boolean                          := False;
       Recursions            : in out WisiToken.Generate.Recursions)
      return Parse_Table_Ptr
@@ -884,10 +884,9 @@ package body WisiToken.Generate.LR.LR1_Generate is
       Item_Sets : constant LR1_Items.Item_Set_List :=
         (if Task_Count = 1
          then LR1_Item_Sets_Single
-           (Has_Empty_Production, First_Terminal_Sequence, Grammar, Descriptor, Hash_Table_Size)
+           (Has_Empty_Production, First_Terminal_Sequence, Grammar, Descriptor)
         else LR1_Item_Sets_Parallel
-           (Has_Empty_Production, First_Terminal_Sequence, Grammar, Descriptor, Task_Count,
-            Hash_Table_Size));
+           (Has_Empty_Production, First_Terminal_Sequence, Grammar, Descriptor, Task_Count));
 
       Unknown_Conflicts    : Conflict_Lists.Tree;
       Known_Conflicts_Edit : Conflict_Lists.Tree := Known_Conflicts;
@@ -896,11 +895,18 @@ package body WisiToken.Generate.LR.LR1_Generate is
 
    begin
       if not Use_Cached_Recursions or Recursions = Empty_Recursions then
-         Recursions :=
-           (if Partial_Recursion
-            then WisiToken.Generate.Compute_Partial_Recursion (Grammar, Descriptor)
-            else WisiToken.Generate.Compute_Full_Recursion (Grammar, Descriptor));
+         case Recursion_Strategy is
+         when None =>
+            null;
+
+         when Partial =>
+            Recursions := WisiToken.Generate.Compute_Partial_Recursion (Grammar, Descriptor);
+
+         when Full =>
+            Recursions := WisiToken.Generate.Compute_Full_Recursion (Grammar, Descriptor);
+         end case;
       end if;
+
       Set_Grammar_Recursions (Recursions, Grammar);
       Recursions_Time := Ada.Calendar.Clock;
 
@@ -929,6 +935,8 @@ package body WisiToken.Generate.LR.LR1_Generate is
          First_Nonterminal => Descriptor.First_Nonterminal,
          Last_Nonterminal  => Descriptor.Last_Nonterminal);
 
+      Table.Error_Recover_Enabled := Error_Recover;
+
       if McKenzie_Param = Default_McKenzie_Param then
          --  Descriminants in Default are wrong
          Table.McKenzie_Param :=
@@ -948,6 +956,7 @@ package body WisiToken.Generate.LR.LR1_Generate is
             Check_Limit                 => Default_McKenzie_Param.Check_Limit,
             Check_Delta_Limit           => Default_McKenzie_Param.Check_Delta_Limit,
             Enqueue_Limit               => Default_McKenzie_Param.Enqueue_Limit);
+
       else
          Table.McKenzie_Param := McKenzie_Param;
       end if;

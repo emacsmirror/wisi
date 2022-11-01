@@ -1,4 +1,4 @@
-;;; wisi-fringe.el --- show approximate error locations in the fringe
+;;; wisi-fringe.el --- show approximate error locations in the fringe  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2018 - 2019, 2021 - 2022  Free Software Foundation, Inc.
 ;;
@@ -17,7 +17,7 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 ;;
-;; Design:
+;;; Design:
 ;;
 ;; Bitmaps are displayed in the fringe by putting a 'display property
 ;; on buffer text. However, just doing that also hides the buffer
@@ -28,6 +28,10 @@
 ;; We show approximate error positions in the entire buffer with
 ;; single-pixel lines in the right fringe, and mark error lines with
 ;; ’!!’ in the left fringe.
+
+;;; Code:
+
+(require 'wisi-parse-common)            ;For `wisi-debug'
 
 (defun wisi-fringe-create-bitmaps ()
   "Return an array of bitmap symbols containing the fringe bitmaps."
@@ -117,7 +121,7 @@ in the window."
   (let* ((scale (/ window-lines (float buffer-lines)))
 	 (line (floor (* scale error-line)))
 	 (rem (- error-line (floor (/ line scale)))))
-    (cons (+ window-line-first line) (lsh 1 (min 5 (floor (* rem (* 6 scale))))))))
+    (cons (+ window-line-first line) (ash 1 (min 5 (floor (* rem (* 6 scale))))))))
 
 (defun wisi-fringe-clean ()
   "Remove all wisi-fringe marks."

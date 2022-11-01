@@ -25,6 +25,7 @@
 ;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
 (require 'xref)
+(require 'wisi-prj)                     ;For `wisi-goto-source'.
 
 (defvar wisitoken-parse_table-last-buffer nil
   "Last buffer in which a wisitoken-parse_table operation was performed")

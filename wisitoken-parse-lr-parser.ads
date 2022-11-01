@@ -92,11 +92,9 @@ package WisiToken.Parse.LR.Parser is
       Max_Sequential_Index : Syntax_Trees.Sequential_Index := Syntax_Trees.Sequential_Index'First;
 
       Parsers : aliased Parser_Lists.List;
-
-      Partial_Parse_Active    : access Boolean;
-      Partial_Parse_Byte_Goal : access WisiToken.Buffer_Pos;
-      --  Used by In_Parse_Actions to terminate Partial_Parse.
    end record;
+
+   type Parser_Access is access Parser;
 
    --  It is tempting to declare Finalize here, to free Parser.Table. But
    --  Wisi.Parse_Context reuses the table between parser instances, so
@@ -128,15 +126,5 @@ package WisiToken.Parse.LR.Parser is
       Recover_Log_File : in     Ada.Text_IO.File_Type;
       Edits            : in     KMN_Lists.List := KMN_Lists.Empty_List;
       Pre_Edited       : in     Boolean        := False);
-
-   overriding procedure Execute_Actions
-     (Parser              : in out LR.Parser.Parser;
-      Action_Region_Bytes : in     WisiToken.Buffer_Region);
-   --  Call Parser.User_Data.Insert_Token, Parser.User_Data.Delete_Token
-   --  on any tokens inserted/deleted by error recovery. Update
-   --  Parser.Line_Begin_Tokens to reflect error recovery. Then call
-   --  User_Data.Reduce and the grammar post parse actions on all
-   --  nonterms in the syntax tree that overlap Action_Region_Bytes, by
-   --  traversing the tree in depth-first order.
 
 end WisiToken.Parse.LR.Parser;

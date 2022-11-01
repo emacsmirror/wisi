@@ -21,21 +21,21 @@
 pragma License (GPL);
 
 with Wisi;
-with WisiToken.Lexer;
 with WisiToken.Parse.LR.Parser;
 with WisiToken.Syntax_Trees;
 generic
    type Parse_Data_Type is new Wisi.Parse_Data_Type with private;
 
-   Descriptor                     : in WisiToken.Descriptor_Access_Constant;
-   Partial_Parse_Active           : in WisiToken.Boolean_Access;
-   Partial_Parse_Byte_Goal        : in WisiToken.Buffer_Pos_Access;
    Language_Fixes                 : in WisiToken.Parse.LR.Parser.Language_Fixes_Access;
    Language_Matching_Begin_Tokens : in WisiToken.Parse.LR.Parser.Language_Matching_Begin_Tokens_Access;
    Language_String_ID_Set         : in WisiToken.Parse.LR.Parser.Language_String_ID_Set_Access;
 
-   with function Create_Lexer (Trace : in WisiToken.Trace_Access) return WisiToken.Lexer.Handle;
-   with function Create_Parse_Table return WisiToken.Parse.LR.Parse_Table_Ptr;
-   with function Create_Productions return WisiToken.Syntax_Trees.Production_Info_Trees.Vector;
+   with function Create_Parser
+     (Trace                          : in WisiToken.Trace_Access;
+      User_Data                      : in WisiToken.Syntax_Trees.User_Data_Access;
+      Language_Fixes                 : in WisiToken.Parse.LR.Parser.Language_Fixes_Access;
+      Language_Matching_Begin_Tokens : in WisiToken.Parse.LR.Parser.Language_Matching_Begin_Tokens_Access;
+      Language_String_ID_Set         : in WisiToken.Parse.LR.Parser.Language_String_ID_Set_Access)
+     return WisiToken.Parse.LR.Parser.Parser;
 
 procedure Gen_Run_Wisi_LR_Parse;

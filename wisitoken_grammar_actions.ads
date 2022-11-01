@@ -283,4 +283,6 @@ package Wisitoken_Grammar_Actions is
      (User_Data : in out WisiToken.Syntax_Trees.User_Data_Type'Class;
       Tree      : in out WisiToken.Syntax_Trees.Tree;
       Nonterm   : in     WisiToken.Syntax_Trees.Valid_Node_Access);
+   Partial_Parse_Active    : aliased Boolean := False;
+   Partial_Parse_Byte_Goal : aliased WisiToken.Buffer_Pos := WisiToken.Buffer_Pos'Last;
 end Wisitoken_Grammar_Actions;

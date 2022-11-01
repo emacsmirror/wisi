@@ -523,10 +523,11 @@ package body Wisi is
                --  We get here in partial_parse when there is no action to set indent
                --  for the first few lines; they are comments or low-level statements
                --  or declarations. ada_mode-recover_partial_28.adb
-               Data.Indents.Replace_Element (Line, (Int, Invalid_Line_Number, Data.Begin_Indent));
+               Data.Indents.Replace_Element (Line, (Int, Data.Action_Region_Lines.First, Data.Begin_Indent));
 
             when Int =>
-               Data.Indents.Replace_Element (Line, (Int, Invalid_Line_Number, Indent.Int_Indent + Begin_Indent));
+               Data.Indents.Replace_Element
+                 (Line, (Int, Data.Action_Region_Lines.First, Indent.Int_Indent + Begin_Indent));
 
             when Anchored =>
                declare
@@ -541,7 +542,8 @@ package body Wisi is
 
                   when Int =>
                      Data.Indents.Replace_Element
-                       (Line, (Int, Invalid_Line_Number, Anchor_Line_Indent.Int_Indent + Indent.Anchor_Delta));
+                       (Line,
+                        (Int, Data.Action_Region_Lines.First, Anchor_Line_Indent.Int_Indent + Indent.Anchor_Delta));
                   end case;
                end;
 
@@ -603,8 +605,8 @@ package body Wisi is
          Simple_Delta           =>
            (case Indent.Label is
             when Not_Set  => (None, Invalid_Line_Number),
-            when Int      => (Int, Invalid_Line_Number, Indent.Int_Indent),
-            when Anchored => (Anchored, Invalid_Line_Number, Indent.Anchor_Line, Indent.Anchor_Delta)));
+            when Int      => (Int, Indent.Controlling_Token_Line, Indent.Int_Indent),
+            when Anchored => (Anchored, Indent.Controlling_Token_Line, Indent.Anchor_Line, Indent.Anchor_Delta)));
    end To_Delta;
 
    ----------
@@ -797,7 +799,7 @@ package body Wisi is
       Action_Region_Chars : in     WisiToken.Buffer_Region;
       Begin_Indent        : in     Integer)
    is begin
-      if not Tree.Editable then
+      if Tree.Root = Syntax_Trees.Invalid_Node_Access then
          raise Parse_Error with "previous parse failed; can't execute post_parse action.";
       end if;
 
@@ -1811,16 +1813,13 @@ package body Wisi is
                           (Data, Tree,
                            Line_Region       => Indenting.Comment,
                            Delta_Indent      => Comment_Delta,
-                           Controlling_Delta => To_Delta
-                             (Data.Indents
-                                (Line_Number_Type'
-                                   (if Params (I).Comment_Present
-                                    then -- ada_mode-conditional_expressions.adb case expression for K, if
-                                          --  expression blank line.
-                                       Tree.Line_Region (Controlling_Token, Trailing_Non_Grammar => True).Last
+                           Controlling_Delta =>
+                             (if Params (I).Comment_Present
+                              then Null_Delta --  test_select.adb accept E2
 
-                                    else --  ada_mode-conditional_expressions.adb case expression for K.
-                                       Tree.Line_Region (Controlling_Token, Trailing_Non_Grammar => True).First))),
+                              else To_Delta --  ada_mode-conditional_expressions.adb case expression for K.
+                                (Data.Indents
+                                   (Tree.Line_Region (Controlling_Token, Trailing_Non_Grammar => True).First))),
                            Indenting_Comment => (if Params (I).Comment_Present then Trailing else Leading));
                      end if;
                   end if;
@@ -2012,8 +2011,15 @@ package body Wisi is
               (if Query.Label = Parent
                then Tree.Parent (Query.Node, Query.N)
                else Tree.Child (Query.Node, Positive_Index_Type (Query.N)));
-            Char_Region : constant Buffer_Region := Tree.Char_Region (Result, Trailing_Non_Grammar => False);
+            Char_Region : constant Buffer_Region :=
+              (if Result = Invalid_Node_Access
+               then Null_Buffer_Region
+               else Tree.Char_Region (Result, Trailing_Non_Grammar => False));
          begin
+            if Result = Invalid_Node_Access then
+               raise Parse_Error with "previous parse failed; can't execute post_parse action.";
+            end if;
+
             Ada.Text_IO.Put_Line
               ("[" & Query_Tree_Code &
                  Query_Label'Pos (Query.Label)'Image & " " &
@@ -2040,21 +2046,23 @@ package body Wisi is
          end if;
 
       when Dump =>
-         declare
-            use Ada.Directories;
-            File_Name : constant String := -Query.File_Name;
-            Normalized_Tree : WisiToken.Syntax_Trees.Tree;
-         begin
-            if Exists (File_Name) then
-               Delete_File (File_Name);
-            end if;
+         if Tree.Parents_Set then
+            declare
+               use Ada.Directories;
+               File_Name : constant String := -Query.File_Name;
+               Normalized_Tree : WisiToken.Syntax_Trees.Tree;
+            begin
+               if Exists (File_Name) then
+                  Delete_File (File_Name);
+               end if;
 
-            WisiToken.Syntax_Trees.Copy_Tree
-              (Source      => Tree,
-               Destination => Normalized_Tree,
-               User_Data   => Syntax_Trees.User_Data_Access_Constant (Data));
-            Normalized_Tree.Put_Tree (-Query.File_Name);
-         end;
+               WisiToken.Syntax_Trees.Copy_Tree
+                 (Source      => Tree,
+                  Destination => Normalized_Tree,
+                  User_Data   => Syntax_Trees.User_Data_Access_Constant (Data));
+               Normalized_Tree.Put_Tree (-Query.File_Name);
+            end;
+         end if;
       end case;
    end Query_Tree;
 
@@ -2127,6 +2135,7 @@ package body Wisi is
 
    procedure Put_Errors (Tree : in Syntax_Trees.Tree)
    is
+      use all type SAL.Base_Peek_Type;
       use Ada.Text_IO;
       Descriptor  : WisiToken.Descriptor renames Tree.Lexer.Descriptor.all;
 
@@ -2537,7 +2546,7 @@ package body Wisi is
             return
               (Simple,
                (Int,
-                Tree.Line_Region (Indenting_Token, Trailing_Non_Grammar => True).First,
+                Tree.Line_At_Node (Indenting_Token),
                 Param.Param.Int_Delta));
 
          when Simple_Param_Anchored =>

@@ -23,15 +23,20 @@ with WisiToken.Parse.LR.Parser;
 with WisiToken.Text_IO_Trace;
 procedure Gen_Emacs_Wisi_LR_Parse
 is
-   Trace               : aliased WisiToken.Text_IO_Trace.Trace;
-   Parse_Data_Template : aliased Parse_Data_Type;
-
+   Trace  : aliased WisiToken.Text_IO_Trace.Trace;
    Params : constant Process_Start_Params := Get_Process_Start_Params;
+
+   function Factory return WisiToken.Parse.Base_Parser_Access
+   is begin
+      return new WisiToken.Parse.LR.Parser.Parser'
+        (Create_Parser
+           (Trace'Unrestricted_Access,
+            User_Data                      => new Parse_Data_Type,
+            Language_Fixes                 => Language_Fixes,
+            Language_Matching_Begin_Tokens => Language_Matching_Begin_Tokens,
+            Language_String_ID_Set         => Language_String_ID_Set));
+   end Factory;
 begin
    Process_Stream
-     (Name, Language_Protocol_Version, Params,
-      (Descriptor, Create_Lexer (Trace'Unchecked_Access), Create_Parse_Table, Create_Productions,
-       Partial_Parse_Active, Partial_Parse_Byte_Goal, Language_Fixes, Language_Matching_Begin_Tokens,
-       Language_String_ID_Set, Parse_Data_Template'Unchecked_Access),
-      Trace'Unchecked_Access);
+     (Name, Language_Protocol_Version, Params, Factory'Unrestricted_Access, Trace'Unchecked_Access);
 end Gen_Emacs_Wisi_LR_Parse;

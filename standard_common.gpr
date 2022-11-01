@@ -2,7 +2,7 @@
 --
 --  Standard settings for all of Stephe's Ada projects.
 --
---  Copyright (C) 2018 - 2021 Free Software Foundation, Inc.
+--  Copyright (C) 2018 - 2022 Free Software Foundation, Inc.
 --
 --  This program is free software; you can redistribute it and/or
 --  modify it under terms of the GNU General Public License as
@@ -18,6 +18,7 @@
 
 project Standard_Common is
    for Source_Dirs use ();
+   for Create_Missing_Dirs use "True";
 
    type Build_Type is ("Debug", "Normal");
    Build : Build_Type := External ("Standard_Common_Build", "Normal");

@@ -28,7 +28,7 @@ package body SAL is
 
    function Version return String is
    begin
-      return "SAL 3.6";
+      return "SAL 3.7";
    end Version;
 
    function String_Compare (Left, Right : in String) return Compare_Result

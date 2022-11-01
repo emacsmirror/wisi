@@ -15,7 +15,6 @@ pragma License (GPL);
 
 with Ada.Directories;
 with Ada.Exceptions;
-with Ada.Finalization;
 with Ada.Tags;
 with GNAT.OS_Lib;
 with SAL.Gen_Unbounded_Definite_Red_Black_Trees;
@@ -33,37 +32,20 @@ package body Wisi.Parse_Context is
    Map : File_Parse_Context_Maps.Tree;
 
    function Create_No_File
-     (Language : in Wisi.Parse_Context.Language;
-      Trace    : in WisiToken.Trace_Access)
+     (Factory : in WisiToken.Parse.Factory;
+      Trace   : in WisiToken.Trace_Access)
      return Parse_Context_Access
    is
       use WisiToken;
    begin
-      return Result : constant Parse_Context_Access :=
-        (new Parse_Context'
-           (File_Name                         => +"",
-            Text_Buffer                       => null,
-            Text_Buffer_Byte_Last             => 0,
-            Text_Buffer_Char_Last             => 0,
-            Parser                            => WisiToken.Parse.LR.Parser.Parser'
-              (Ada.Finalization.Limited_Controlled with
-               User_Data                      => Wisi.New_User_Data (Language.Parse_Data_Template.all),
-               Table                          => Language.Table,
-               Productions                    => Language.Productions,
-               Language_Fixes                 => Language.Fixes,
-               Language_Matching_Begin_Tokens => Language.Matching_Begin_Tokens,
-               Language_String_ID_Set         => Language.String_ID_Set,
-               Partial_Parse_Active           => Language.Partial_Parse_Active,
-               Partial_Parse_Byte_Goal        => Language.Partial_Parse_Byte_Goal,
-               others                         => <>),
-            Root_Save_Edited_Name             => <>,
-            Save_Edited_Count                 => <>))
+      return Result : constant Parse_Context_Access := new Parse_Context
       do
-         Result.Parser.Tree.Lexer := Language.Lexer;
+         Result.Parser := Factory.all;
+
          if Trace_Incremental_Parse > Outline then
             Trace.Put_Line
               ("parse_context (no file) created, language " & Ada.Tags.Expanded_Name
-                 (Language.Parse_Data_Template.all'Tag));
+                 (Result.Parser.User_Data'Tag));
             if Trace_Memory > Outline then
                Report_Memory (Trace.all, Prefix => True);
             end if;
@@ -73,10 +55,10 @@ package body Wisi.Parse_Context is
 
    procedure Create_No_Text
      (File_Name : in String;
-      Language  : in Wisi.Parse_Context.Language;
+      Factory   : in WisiToken.Parse.Factory;
       Trace     : in WisiToken.Trace_Access)
    is
-      Temp : constant Parse_Context_Access := Create_No_File (Language, Trace);
+      Temp : constant Parse_Context_Access := Create_No_File (Factory, Trace);
    begin
       Set_File (File_Name, Temp);
    end Create_No_Text;
@@ -97,7 +79,7 @@ package body Wisi.Parse_Context is
 
    function Find_Create
      (File_Name : in String;
-      Language  : in Wisi.Parse_Context.Language;
+      Factory   : in WisiToken.Parse.Factory;
       Trace     : in WisiToken.Trace_Access)
      return Parse_Context_Access
    is begin
@@ -113,40 +95,29 @@ package body Wisi.Parse_Context is
       begin
          if Has_Element (Found) then
             return Result : constant Parse_Context_Access := Element (Found) do
-               if Language.Descriptor /= Result.Parser.Tree.Lexer.Descriptor then
-                  raise WisiToken.User_Error with "language does not match for buffer '" & File_Name & "'";
-               end if;
                if Trace_Incremental_Parse > Outline then
                   Trace.Put_Line ("parse_context found");
                end if;
             end return;
          end if;
 
-         return Result : constant Parse_Context_Access :=
-           (new Parse_Context'
-              (File_Name                         => +File_Name,
-               Text_Buffer                       => null,
-               Text_Buffer_Byte_Last             => 0,
-               Text_Buffer_Char_Last             => 0,
-               Parser                            => WisiToken.Parse.LR.Parser.Parser'
-                 (Ada.Finalization.Limited_Controlled with
-                  User_Data                      => Wisi.New_User_Data (Language.Parse_Data_Template.all),
-                  Table                          => Language.Table,
-                  Productions                    => Language.Productions,
-                  Language_Fixes                 => Language.Fixes,
-                  Language_Matching_Begin_Tokens => Language.Matching_Begin_Tokens,
-                  Language_String_ID_Set         => Language.String_ID_Set,
-                  Partial_Parse_Active           => Language.Partial_Parse_Active,
-                  Partial_Parse_Byte_Goal        => Language.Partial_Parse_Byte_Goal,
-                  others                         => <>),
-               Root_Save_Edited_Name             => <>,
-               Save_Edited_Count                 => <>))
+         return Result               : constant Parse_Context_Access :=
+           new Parse_Context'
+             (File_Name             => +File_Name,
+              Text_Buffer           => null,
+              Text_Buffer_Byte_Last => 0,
+              Text_Buffer_Char_Last => 0,
+              Parser                => Factory.all,
+              Prev_Tree             => <>,
+              Save_Prev_Text_Tree   => False,
+              Root_Save_Edited_Name => <>,
+              Save_Edited_Count     => <>,
+              Frozen                => False)
          do
-            Result.Parser.Tree.Lexer := Language.Lexer;
             Map.Insert (Result);
             if Trace_Incremental_Parse > Outline then
                Trace.Put_Line
-                 ("parse_context created, language " & Ada.Tags.Expanded_Name (Language.Parse_Data_Template.all'Tag));
+                 ("parse_context created, language " & Ada.Tags.Expanded_Name (Result.Parser.User_Data'Tag));
                if Trace_Memory > Outline then
                   Report_Memory (Trace.all, Prefix => True);
                end if;
@@ -157,7 +128,6 @@ package body Wisi.Parse_Context is
 
    function Find
      (File_Name : in String;
-      Language  : in Wisi.Parse_Context.Language;
       Have_Text : in Boolean := False)
      return Parse_Context_Access
    is begin
@@ -174,9 +144,6 @@ package body Wisi.Parse_Context is
       begin
          if Has_Element (Found) then
             return Result : constant Parse_Context_Access := Element (Found) do
-               if Language.Descriptor /= Result.Parser.Tree.Lexer.Descriptor then
-                  raise WisiToken.User_Error with "language does not match for buffer '" & File_Name & "'";
-               end if;
                if Have_Text and (Result.Text_Buffer = null or else Result.Text_Buffer'Length = 0) then
                   if Trace_Incremental_Parse > Outline then
                      Result.Parser.Tree.Lexer.Trace.Put_Line ("parse_context found, but text buffer empty");
@@ -748,6 +715,13 @@ package body Wisi.Parse_Context is
          Source (Gap_First .. Source_Byte_Last) := Source (Gap_Last + 1 .. Source'Last);
       end if;
    end Edit_Source;
+
+   procedure Dump_Prev_Tree
+     (Context   : in Parse_Context;
+      File_Name : in String)
+   is begin
+      Context.Prev_Tree.Put_Tree (File_Name);
+   end Dump_Prev_Tree;
 
    procedure Save_Text
      (Context   : in Parse_Context;

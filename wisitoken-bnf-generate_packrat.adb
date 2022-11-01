@@ -56,6 +56,7 @@ is
    end Var_Suffix;
 
    procedure Generate_Parser_Body (Prod : in Productions.Instance)
+   --  Generate the parser function for one production.
    is
       use all type Ada.Containers.Count_Type;
 
@@ -72,10 +73,11 @@ is
       Indent_Line ("Descriptor : WisiToken.Descriptor renames Tree.Lexer.Descriptor.all;");
       Indent_Line
         ("Start_Pos  : constant Syntax_Trees.Stream_Index := Tree.Stream_Next (Tree.Shared_Stream, Last_Pos);");
-      Indent_Line ("Start_Pos_Index : constant Syntax_Trees.Node_Index :=");
+      Indent_Line ("Start_Pos_Index  : constant Syntax_Trees.Node_Index :=");
       Indent_Line ("  Tree.Get_Node_Index (Tree.Shared_Stream, Start_Pos);");
-      Indent_Line ("Pos        : Syntax_Trees.Stream_Index := Last_Pos; --  last token parsed.");
-      Indent_Line ("Next_Pos   : Syntax_Trees.Stream_Index := Start_Pos;");
+      Indent_Line ("Pos              : Syntax_Trees.Stream_Index := Last_Pos; --  last token parsed.");
+      Indent_Line ("Next_Pos         : Syntax_Trees.Stream_Index := Start_Pos;");
+      Indent_Line ("Max_Examined_Pos : Syntax_Trees.Stream_Index := Last_Pos;");
 
       for RHS_Index in Prod.RHSs.First_Index .. Prod.RHSs.Last_Index loop
          declare
@@ -101,11 +103,11 @@ is
       Indent := Indent + 3;
 
       Indent_Line ("if Next_Pos = Syntax_Trees.Invalid_Stream_Index then");
-      Indent_Line ("   return (State => Failure);");
+      Indent_Line ("   return (State => Failure, Max_Examined_Pos => Next_Pos);");
       Indent_Line ("end if;");
       Indent_Line ("declare");
       Indent_Line
-        ("   Memo : Memo_Entry renames Parser.Derivs (" & Result_ID & ")(Start_Pos_Index);");
+        ("   Memo : Memo_Entry := Get_Deriv (Parser.Derivs, " & Result_ID & ", Start_Pos_Index);");
       Indent_Line ("begin");
       Indent := Indent + 3;
       Indent_Line ("case Memo.State is");
@@ -128,7 +130,9 @@ is
 
       if Data.Direct_Left_Recursive (Prod.LHS) then
          --  This is the top of the 'while' loop in [warth 2008] figure 3 Grow-LR.
-         Indent_Line ("Parser.Derivs (" & Result_ID & ").Replace_Element (Start_Pos_Index, (State => Failure));");
+         Indent_Line
+           ("Set_Deriv (Parser.Derivs, " & Result_ID &
+              ", Start_Pos_Index, (State => Failure, Max_Examined_Pos => Next_Pos));");
          Indent_Line ("<<Recurse_Start>>");
       end if;
 
@@ -142,11 +146,12 @@ is
                   Indent_Line ("Result_Recurse :=");
                   Indent := Indent + 2;
                else
-                  Indent_Line ("Parser.Derivs (" & Result_ID & ").Replace_Element");
-                  Indent_Line ("  (Start_Pos_Index,");
+                  Indent_Line ("Set_Deriv");
+                  Indent_Line ("  (Parser.Derivs, " & Result_ID & ", Start_Pos_Index,");
                   Indent := Indent + 3;
                end if;
                Indent_Line ("(State            => Success,");
+               Indent_Line (" Max_Examined_Pos => Max_Examined_Pos,");
                Indent_Line (" Result           => Parser.Tree.Add_Nonterm");
 
                Indent := Indent + 3;
@@ -218,10 +223,12 @@ is
                for Token_Index in RHS.Tokens.First_Index .. RHS.Tokens.Last_Index loop
                   declare
                      ID      : constant String := Trimmed_Image (RHS.Tokens (Token_Index));
+                     ID_Name : constant String := Image (RHS.Tokens (Token_Index), Descriptor);
                      Var_Suf : constant String := Var_Suffix (RHS_Index, Token_Index);
                   begin
                      if RHS.Tokens (Token_Index) in Terminal then
-                        Indent_Line ("if Tree.ID (Tree.Shared_Stream, Next_Pos) = " & ID & " then");
+                        Indent_Line ("Update (Parser, """ & ID_Name & """, Next_Pos, Max_Examined_Pos);");
+                        Indent_Line ("if Tree.ID (Next_Pos) = " & ID & " then");
                         Indent := Indent + 3;
                         Indent_Line ("Pos := Next_Pos;");
                         Indent_Line ("Next_Pos := Tree.Stream_Next (Tree.Shared_Stream, Pos);");
@@ -238,6 +245,9 @@ is
                         Indent_Line
                           ("Memo_" & Var_Suf & " := Parse_" & Image (RHS.Tokens (Token_Index), Descriptor) &
                              " (Parser, Pos);");
+                        Indent_Line
+                          ("Update (Parser, """ & ID_Name & """, Memo_" & Var_Suf &
+                             ".Max_Examined_Pos, Max_Examined_Pos);");
                         Indent_Line ("case Result_States'(Memo_" & Var_Suf & ".State) is");
                         Indent_Line ("when Success =>");
                         Indent := Indent + 3;
@@ -255,16 +265,18 @@ is
                end loop;
             end if;
 
-            Indent_Line ("<<RHS_" & Trimmed_Image (RHS_Index) & "_Fail>>");
             New_Line;
+            Indent_Line ("<<RHS_" & Trimmed_Image (RHS_Index) & "_Fail>>");
          end;
       end loop;
 
       --  We get here if the last alternative fails.
       if Data.Direct_Left_Recursive (Prod.LHS) then
-         Indent_Line ("Result_Recurse := (State => Failure);");
+         Indent_Line ("Result_Recurse := (State => Failure, Max_Examined_Pos => Max_Examined_Pos);");
       else
-         Indent_Line ("Parser.Derivs (" & Result_ID & ").Replace_Element (Start_Pos_Index, (State => Failure));");
+         Indent_Line ("Set_Deriv");
+         Indent_Line ("   (Parser.Derivs, " & Result_ID & ", Start_Pos_Index,");
+         Indent_Line ("    (State => Failure, Max_Examined_Pos => Max_Examined_Pos));");
          Indent_Line ("return Parser.Derivs (" & Result_ID & ")(Start_Pos_Index);");
       end if;
 
@@ -277,12 +289,12 @@ is
          Indent_Line ("then");
          --  made progress, try again
          Indent := Indent + 3;
-         Indent_Line ("Parser.Derivs (" & Result_ID & ").Replace_Element (Start_Pos_Index, Result_Recurse);");
+         Indent_Line ("Set_Deriv (Parser.Derivs, " & Result_ID & ", Start_Pos_Index, Result_Recurse);");
          Indent_Line ("Pos_Recurse_Last := Pos;");
          Indent_Line ("if WisiToken.Trace_Parse > Detail then");
          Indent_Line ("   Tree.Lexer.Trace.Put_Line");
          Indent_Line ("     (Parser.Tree.Image (Result_Recurse.Result,");
-         Indent_Line ("      Children => True, Terminal_Node_Numbers => True));");
+         Indent_Line ("      Children => True, Terminal_Node_Numbers => True, RHS_Index => True));");
          Indent_Line ("end if;");
          Indent_Line ("goto Recurse_Start;");
          Indent := Indent - 3;
@@ -291,7 +303,7 @@ is
               "Parser.Tree.Is_Empty_Nonterm (Result_Recurse.Result) then");
          --  Parse succeeded producing an empty nonterm; don't try again. This
          --  special case is not in [warth 2008].
-         Indent_Line ("   Parser.Derivs (" & Result_ID & ").Replace_Element (Start_Pos_Index, Result_Recurse);");
+         Indent_Line ("   Set_Deriv (Parser.Derivs, " & Result_ID & ", Start_Pos_Index, Result_Recurse);");
          Indent_Line ("end if;");
          Indent := Indent - 3;
          Indent_Line ("end if;");
@@ -305,7 +317,7 @@ is
          Indent_Line ("Tree.Lexer.Trace.Put_Line");
          Indent_Line ("  (Parser.Tree.Image");
          Indent_Line ("    (Parser.Derivs (" & Result_ID & ")(Start_Pos_Index).Result,");
-         Indent_Line ("     Children => True, Terminal_Node_Numbers => True));");
+         Indent_Line ("     Children => True, Terminal_Node_Numbers => True, RHS_Index => True));");
          Indent := Indent - 3;
          Indent_Line ("end if;");
       end if;
@@ -328,17 +340,30 @@ begin
    end loop;
    New_Line;
 
+   Indent_Line ("procedure Update");
+   Indent_Line ("  (Parser           : in out Generated.Parser;");
+   Indent_Line ("   Nonterm          : in     String;");
+   Indent_Line ("   New_Pos          : in     Syntax_Trees.Stream_Index;");
+   Indent_Line ("   Max_Examined_Pos : in out Syntax_Trees.Stream_Index)");
+   Indent_Line ("is");
+   Indent_Line ("   Tree : Syntax_Trees.Tree renames Parser.Tree;");
+   Indent_Line ("begin");
+   Indent_Line ("   if Tree.Byte_Region");
+   Indent_Line ("     (Tree.Get_Node (Tree.Shared_Stream, New_Pos), Trailing_Non_Grammar => False).First >");
+   Indent_Line ("     Tree.Byte_Region");
+   Indent_Line ("       (Tree.Get_Node (Tree.Shared_Stream, Max_Examined_Pos), Trailing_Non_Grammar => False).First");
+   Indent_Line ("   then");
+   Indent_Line ("      Max_Examined_Pos := New_Pos;");
+   Indent_Line ("   end if;");
+   Indent_Line ("   if Trace_Parse > Extra then");
+   Indent_Line ("      Tree.Lexer.Trace.Put_Line");
+   Indent_Line ("        (Nonterm & "": max_examined_pos "" & Tree.Image");
+   Indent_Line ("          (Tree.Get_Node (Tree.Shared_Stream, Max_Examined_Pos), Node_Numbers => True));");
+   Indent_Line ("   end if;");
+   Indent_Line ("end Update;");
+
    for Prod of Data.Grammar loop
       Generate_Parser_Body (Prod);
    end loop;
-
-   Indent_Line ("function Parse_wisitoken_accept_1");
-   --  WORKAROUND: using Parse.Packrat.Parser'Class here generates GNAT bug box with GPL 2018
-   Indent_Line ("  (Parser   : in out WisiToken.Parse.Base_Parser'Class;");
-   Indent_Line ("   Last_Pos : in Syntax_Trees.Stream_Index) return Result_Type");
-   Indent_Line ("is begin");
-   Indent_Line ("   return Parse_wisitoken_accept (Generated.Parser (Parser), Last_Pos);");
-   Indent_Line ("end Parse_wisitoken_accept_1;");
-   New_Line;
 
 end WisiToken.BNF.Generate_Packrat;

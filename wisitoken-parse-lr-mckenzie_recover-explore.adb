@@ -839,7 +839,7 @@ package body WisiToken.Parse.LR.McKenzie_Recover.Explore is
       Orig_Config       : in out Configuration;
       Local_Config_Heap : in out Config_Heaps.Heap_Type)
      return Token_ID_Arrays.Vector
-      --  Return tokens inserted (empty if none).
+   --  Return tokens inserted (empty if none).
    is
       use Ada.Containers;
 
@@ -1915,8 +1915,7 @@ package body WisiToken.Parse.LR.McKenzie_Recover.Explore is
                   else Invalid_Line_Number)
                elsif not Config.Error_Token.Virtual and then
                  Config.Error_Token.Node = Config.Input_Stream (Config.Input_Stream.First)
-               then Tree.Line_Region (Super.Stream (Parser_Index), Config.Error_Token).First
-               --  Null_Line_Region if unknown.
+               then Tree.Line_At_Node (Super.Stream (Parser_Index), Config.Error_Token)
                else Invalid_Line_Number);
 
          begin
@@ -1962,7 +1961,7 @@ package body WisiToken.Parse.LR.McKenzie_Recover.Explore is
                         then Tree.Lexer.Descriptor.EOI_ID
                         else Tree.Lexer.Descriptor.SOI_ID);
 
-                     exit when Tree.Line_Region (Term, Super.Stream (Parser_Index)).First /= Current_Line;
+                     exit when Tree.Line_At_Node (Term, Super.Stream (Parser_Index)) /= Current_Line;
 
                      if Forward then
                         Tree.Next_Terminal (Term, Following => True);

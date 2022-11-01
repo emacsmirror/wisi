@@ -65,13 +65,17 @@ package WisiToken.BNF.Output_Ada_Common is
       Input_Data           : in WisiToken_Grammar_Runtime.User_Data_Type);
 
    procedure LR_Create_Create_Parse_Table
-     (Input_Data           :         in     WisiToken_Grammar_Runtime.User_Data_Type;
-      Common_Data          :         in out Output_Ada_Common.Common_Data;
-      Generate_Data        : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data;
-      Actions_Package_Name :         in     String);
+     (Input_Data    :         in     WisiToken_Grammar_Runtime.User_Data_Type;
+      Common_Data   :         in out Output_Ada_Common.Common_Data;
+      Generate_Data : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data);
    --  If not Common_Data.Text_Rep, includes LR parse table in generated
    --  source. Otherwise, includes call to LR.Get_Text_Rep; caller must
    --  call Put_Text_Rep to create file.
+
+   procedure LR_Create_Create_Parser
+     (Actions_Package_Name :         in     String;
+      Common_Data          :         in out Output_Ada_Common.Common_Data;
+      Generate_Data        : aliased in     WisiToken.BNF.Generate_Utils.Generate_Data);
 
    procedure Packrat_Create_Create_Parser
      (Actions_Package_Name :         in     String;

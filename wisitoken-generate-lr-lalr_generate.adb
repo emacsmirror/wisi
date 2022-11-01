@@ -479,13 +479,14 @@ package body WisiToken.Generate.LR.LALR_Generate is
      (Grammar               : in out WisiToken.Productions.Prod_Arrays.Vector;
       Descriptor            : in     WisiToken.Descriptor;
       Grammar_File_Name     : in     String;
+      Error_Recover         : in     Boolean;
       Known_Conflicts       : in     Conflict_Lists.Tree := Conflict_Lists.Empty_Tree;
       McKenzie_Param        : in     McKenzie_Param_Type := Default_McKenzie_Param;
       Max_Parallel          : in     SAL.Base_Peek_Type  := 15;
       Parse_Table_File_Name : in     String              := "";
       Include_Extra         : in     Boolean             := False;
       Ignore_Conflicts      : in     Boolean             := False;
-      Partial_Recursion     : in     Boolean             := True;
+      Recursion_Strategy    : in     WisiToken.Recursion_Strategy := Full;
       Use_Cached_Recursions : in     Boolean             := False;
       Recursions            : in out WisiToken.Generate.Recursions)
      return Parse_Table_Ptr
@@ -524,10 +525,17 @@ package body WisiToken.Generate.LR.LALR_Generate is
 
    begin
       if not Use_Cached_Recursions or Recursions = Empty_Recursions then
-         Recursions :=
-           (if Partial_Recursion
-            then WisiToken.Generate.Compute_Partial_Recursion (Grammar, Descriptor)
-            else WisiToken.Generate.Compute_Full_Recursion (Grammar, Descriptor));
+         case Recursion_Strategy is
+         when None =>
+            null;
+
+         when Partial =>
+            Recursions := WisiToken.Generate.Compute_Partial_Recursion (Grammar, Descriptor);
+
+         when Full =>
+            Recursions := WisiToken.Generate.Compute_Full_Recursion (Grammar, Descriptor);
+
+         end case;
       end if;
       Set_Grammar_Recursions (Recursions, Grammar);
       Recursions_Time := Ada.Calendar.Clock;
@@ -566,6 +574,8 @@ package body WisiToken.Generate.LR.LALR_Generate is
          First_Nonterminal => Descriptor.First_Nonterminal,
          Last_Nonterminal  => Descriptor.Last_Nonterminal);
 
+      Table.Error_Recover_Enabled := Error_Recover;
+
       if McKenzie_Param = Default_McKenzie_Param then
          --  Descriminants in Default are wrong
          Table.McKenzie_Param :=
@@ -586,11 +596,8 @@ package body WisiToken.Generate.LR.LALR_Generate is
             Check_Delta_Limit           => Default_McKenzie_Param.Check_Delta_Limit,
             Enqueue_Limit               => Default_McKenzie_Param.Enqueue_Limit);
 
-         Table.Error_Recover_Enabled := False;
-
       else
-         Table.McKenzie_Param        := McKenzie_Param;
-         Table.Error_Recover_Enabled := True;
+         Table.McKenzie_Param := McKenzie_Param;
       end if;
 
       Table.Max_Parallel := Max_Parallel;

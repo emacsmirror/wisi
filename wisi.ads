@@ -554,6 +554,8 @@ private
 
       Controlling_Token_Line : WisiToken.Base_Line_Number_Type := WisiToken.Invalid_Line_Number;
       --  See [2] Indent actions for description of controlling token.
+      --  Invalid when Label is Not_Set; see Delta_Indent for description of
+      --  other cases when it is invalid.
 
       case Label is
       when Not_Set =>
@@ -610,7 +612,9 @@ private
    type Simple_Delta_Type (Label : Simple_Delta_Labels := None) is
    record
       Controlling_Token_Line : WisiToken.Base_Line_Number_Type;
-      --  If Invalid_Line_Number, delta should not be ignored.
+      --  If Invalid_Line_Number, delta should not be ignored. Invalid when
+      --  Label is None, and when Delta is from wisi-block,
+      --  ada-indent-aggregate or similar indent function.
 
       case Label is
       when None =>
@@ -664,8 +668,7 @@ private
       Tree : in WisiToken.Syntax_Trees.Tree;
       Node : in WisiToken.Syntax_Trees.Valid_Node_Access)
      return Wisi.Indenting
-   with Pre => Tree.Line_Region (Node, Trailing_Non_Grammar => False) /= WisiToken.Null_Line_Region and
-               Tree.SOI /= Node and Tree.EOI /= Node;
+   with Pre => Tree.SOI /= Node and Tree.EOI /= Node;
    --  Return Node.Augmented.Indenting, computing it first if needed.
 
    function Current_Indent_Offset
@@ -703,7 +706,7 @@ private
       Indenting_Token   : in     WisiToken.Syntax_Trees.Valid_Node_Access;
       Indenting_Comment : in     Boolean)
      return Delta_Type;
-   --  Return indent defined by Param for Tree_Indenting in Nonterm.
+   --  Return indent defined by Param for Indenting_Token (a child of Nonterm).
 
    procedure Indent_Token_1
      (Data              : in out Parse_Data_Type;
@@ -717,7 +720,7 @@ private
    --  Controlling_Delta should be Null_Delta if Indenting_Comment is
    --  None; it should be any existing indent for
    --  Controlling_Token.Line_Region.[First | Last] if Indenting_Comment
-   --  is Leading | Trailing. This allows adding previously computed
+   --  is Trailing | Leading. This allows adding previously computed
    --  indents for the token controlling a comment line to the comment
    --  line indent.
    --

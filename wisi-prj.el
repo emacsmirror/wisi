@@ -81,6 +81,35 @@
   ;; if the file should be included in `project-files'.
   )
 
+;;;###autoload
+(cl-defun create-wisi-prj
+    (&key
+     name
+     compile-env
+     file-env
+     compiler
+     xref
+     case-exception-files
+     (case-full-exceptions '())
+     (case-partial-exceptions '())
+     source-path
+     file-pred)
+  ;; We declare and autoload this because we can't autoload
+  ;; make-wisi-prj in emacs < 27. We can't use '(defalias
+  ;; 'create-wisi-prj 'make-wisi-prj); then make-wisi-prj is not defined
+  ;; by autoload.
+  (make-wisi-prj
+   :name name
+   :compile-env compile-env
+   :file-env file-env
+   :compiler compiler
+   :xref xref
+   :case-exception-files case-exception-files
+   :case-full-exceptions case-full-exceptions
+   :case-partial-exceptions case-partial-exceptions
+   :source-path source-path
+   :file-pred file-pred))
+
 (defun wisi-prj-require-prj ()
   "Return current `wisi-prj' object.
 Throw an error if current project is not an wisi-prj."
@@ -105,9 +134,10 @@ Used when searching for project files.")
   "Alist holding currently parsed project objects.
 Indexed by absolute project file name.")
 
-(cl-defgeneric wisi-prj-default (prj)
+(cl-defgeneric wisi-prj-default (_prj)
   "Return a project with default values.
-Used to reset a project before refreshing it.")
+Used to reset a project before refreshing it."
+  (make-wisi-prj))
 
 (cl-defgeneric wisi-prj-parse-one (_project _name _value)
   "If recognized by PROJECT, set NAME, VALUE in PROJECT, return non-nil.
@@ -153,13 +183,18 @@ after the project file PRJ-FILE-NAME is parsed."
   "PROJECT has been de-selected; undo any compiler-specific select actions."
   nil)
 
-(cl-defgeneric wisi-compiler-show-prj-path (compiler)
-  "Display buffer listing project file search path.")
+(cl-defgeneric wisi-compiler-prj-path (_compiler)
+  "Return the project file search path.
+Returns a list of directories, for us with `locate-file'."
+  nil)
 
 (cl-defgeneric wisi-compiler-fix-error (compiler source-buffer)
   "Attempt to fix a compilation error, return non-nil if fixed.
 Current buffer is compilation buffer; point is at an error message.
 SOURCE-BUFFER contains the source code referenced in the error message.")
+
+(cl-defgeneric wisi-compiler-root-dir (compiler)
+  "Return a meaningful root directory; nil if none.")
 
 (cl-defgeneric wisi-xref-parse-one (_xref _project _name _value)
   "If recognized by XREF, set NAME, VALUE in XREF, return non-nil.
@@ -206,7 +241,7 @@ Group 1 must be the simple symbol; the rest of the item may be
 annotations.")
 
 (cl-defgeneric wisi-xref-completion-at-point-table (xref project)
-  "Return a completion table of names defined in PROJECT.
+  "Return a completion table of names in PROJECT that are relevant at point.
 The table is a simple list of symbols.")
 
 (cl-defgeneric wisi-xref-definitions (xref project item)
@@ -217,15 +252,17 @@ The table is a simple list of symbols.")
 
 (cl-defgeneric wisi-xref-other (project &key identifier filename line column)
   "Return cross reference information.
-PROJECT - dispatching object, normally a `wisi-prj' object.
-IDENTIFIER - an identifier or operator_symbol
+PROJECT - a `wisi-prj' object.
+IDENTIFIER - string; an identifier or operator_symbol
 FILENAME - absolute filename containing the identifier
 LINE - line number containing the identifier (may be nil)
 COLUMN - Emacs column of the start of the identifier (may be nil)
 Point is on the start of the identifier.
-Returns a list (FILE LINE COLUMN) giving the corresponding location;
-FILE is an absolute file name.  If point is at the specification, the
-corresponding location is the
+
+Returns a list (FILE LINE COLUMN) giving the corresponding
+location; FILE is an absolute file name.  If point is on a
+reference, the corresponding location is the specification. If
+point is at the specification, the corresponding location is the
 body, and vice versa.")
 
 (defvar-local wisi-xref-full-path nil
@@ -314,12 +351,25 @@ user arg limits completion to current file."
 	      id))))
      (t def))))
 
+(eval-and-compile
+  (when (version< emacs-version "28.0.60")
+    ;; WORKAROUND: in emacs 28 xref-location changed from defclass to
+    ;; cl-defstruct.
+    (require 'eieio)
+    (with-suppressed-warnings ;; "unknown slot" in emacs 28
+	(progn
+	  (defun xref-item-summary (item) (oref item summary))
+	  (defun xref-item-location (item) (oref item location))
+	  (defun xref-file-location-file (location) (oref location file))
+	  (defun xref-file-location-line (location) (oref location line))
+	  (defun xref-file-location-column (location) (oref location column))
+	  ))))
+
 (defun wisi-goto-spec/body (identifier)
   "Goto declaration or body for IDENTIFIER (default symbol at point).
 If no symbol at point, or with prefix arg, prompt for symbol, goto spec."
   (interactive (list (wisi-get-identifier "Goto spec/body of: ")))
-  (let ((prj (project-current))
-	desired-loc)
+  (let (desired-loc)
     (cond
      ((consp identifier)
       ;; alist element from wisi-xref-completion-table; desired
@@ -334,49 +384,40 @@ If no symbol at point, or with prefix arg, prompt for symbol, goto spec."
 
      ((stringp identifier)
       ;; from xref-backend-identifier-at-point; desired location is 'other'
-      (let ((item (wisi-xref-item identifier prj)))
-	(condition-case err
-	    ;; WORKAROUND: xref 1.3.2 xref-location changed from
-	    ;; defclass to cl-defstruct. If drop emacs 26, use
-	    ;; 'with-suppressed-warnings'.
-	    (with-no-warnings ;; "unknown slot"
-	      (let ((summary (if (functionp 'xref-item-summary) (xref-item-summary item) (oref item summary)))
-		    (location (if (functionp 'xref-item-location) (xref-item-location item) (oref item location)))
-		    (eieio-skip-typecheck t)) ;; 'location' may have line, column nil
-		(let ((file (if (functionp 'xref-file-location-file)
-				(xref-file-location-file location)
-			      (oref location file)))
-		      (line (if (functionp 'xref-file-location-line)
-				(xref-file-location-line location)
-			      (oref location line)))
-		      (column (if (functionp 'xref-file-location-column)
-				  (xref-file-location-column location)
-				(oref location column))))
-		  (let ((target
-			 (wisi-xref-other
-			  (wisi-prj-xref prj) prj
-			  :identifier summary
-			  :filename file
-			  :line line
-			  :column column)))
-		    (setq desired-loc
-			  (xref-make summary
-				     (xref-make-file-location
-				      (nth 0 target) ;; file
-				      (nth 1 target) ;; line
-				      (nth 2 target))) ;; column
-			  )))))
-	  (user-error ;; from gpr-query; current file might be new to project, so try wisi-names
-	   (let ((item (assoc identifier (wisi-names nil t))))
-	     (if item
-		 (setq desired-loc
-		       (xref-make identifier
-				  (xref-make-file-location
-				   (nth 1 item) ;; file
-				   (nth 2 item) ;; line
-				   (nth 3 item))))
-	       (signal (car err) (cdr err)))))
-	  )))
+      (condition-case err
+	  (let* ((prj (project-current))
+		 (item (wisi-xref-item identifier prj)))
+	    (let ((summary (xref-item-summary item))
+		  (location (xref-item-location item))
+		  (eieio-skip-typecheck t)) ;; 'location' may have line, column nil
+	      (let ((file (xref-file-location-file location))
+		    (line (xref-file-location-line location))
+		    (column (xref-file-location-column location)))
+		(let ((target
+		       (wisi-xref-other
+			(wisi-prj-xref prj) prj
+			:identifier summary
+			:filename file
+			:line line
+			:column column)))
+		  (setq desired-loc
+			(xref-make summary
+				   (xref-make-file-location
+				    (nth 0 target) ;; file
+				    (nth 1 target) ;; line
+				    (nth 2 target))) ;; column
+			)))))
+	(user-error ;; from gpr-query; current file might be new to project, so try wisi-names
+	 (let ((item (assoc identifier (wisi-names nil t))))
+	   (if item
+	       (setq desired-loc
+		     (xref-make identifier
+				(xref-make-file-location
+				 (nth 1 item) ;; file
+				 (nth 2 item) ;; line
+				 (nth 3 item))))
+	     (signal (car err) (cdr err)))))
+	))
 
      (t ;; something else
       (error "unknown case in wisi-goto-spec/body")))
@@ -563,8 +604,13 @@ COLUMN - Emacs column of the start of the identifier")
 ;;;; wisi-prj specific methods
 
 (cl-defmethod project-root ((project wisi-prj))
-   ;; Not meaningful, but some project functions insist on a valid directory
-   (car (wisi-prj-source-path project)))
+  ;; Some project functions insist on a valid directory. eglot starts
+  ;; language server in this directory; for ada_language_server it
+  ;; must be the directory containing the gnat project file.
+  (or
+   (and (wisi-prj-compiler project)
+	(wisi-compiler-root-dir (wisi-prj-compiler project)))
+   (car (wisi-prj-source-path project))))
 
 (cl-defmethod project-files ((project wisi-prj) &optional dirs)
   (let (result)
@@ -677,15 +723,22 @@ absolute file name.")
 Parser is called with two arguments; the project file name and
 a project. Parser should update the project with values from the file.")
 
-(cl-defmethod wisi-prj-parse-one (project name value)
+(cl-defmethod wisi-prj-parse-one ((project wisi-prj) name value)
   "If NAME is a wisi-prj slot, set it to VALUE, return t.
 Else return nil."
   (cond
    ((string= name "casing")
-    (cl-pushnew (expand-file-name
-                 (substitute-in-file-name value))
-                (wisi-prj-case-exception-files project)
-		:test #'string-equal)
+    (let ((exp-value (substitute-in-file-name value)))
+      (if (and (wisi-prj-compiler project)
+	       (not (file-name-absolute-p exp-value)))
+	  (let ((found (locate-file exp-value (wisi-compiler-prj-path (wisi-prj-compiler project)))))
+	    (setq exp-value (if found found (expand-file-name exp-value))))
+
+	(setq exp-value (expand-file-name exp-value)))
+
+      (cl-pushnew exp-value
+                  (wisi-prj-case-exception-files project)
+		  :test #'string-equal))
     t)
 
    ((string= name "src_dir")
@@ -698,6 +751,13 @@ Else return nil."
     ;; Process env var.
     (setf (wisi-prj-file-env project)
 	  (cons (concat (substring name 1) "=" (substitute-in-file-name value))
+		(wisi-prj-file-env project)))
+    t)
+
+   ((string= name "import_env_var")
+    ;; Copy an env var from parent.
+    (setf (wisi-prj-file-env project)
+	  (cons (concat value "=" (getenv value))
 		(wisi-prj-file-env project)))
     t)
 
@@ -723,9 +783,11 @@ Called with three args: PROJECT NAME VALUE.")
 	      result)
 
 	  ;; Both compiler and xref need to see some settings; eg gpr_file, env vars.
-	  (when (wisi-compiler-parse-one (wisi-prj-compiler project) project name value)
+	  (when (and (wisi-prj-compiler project)
+		     (wisi-compiler-parse-one (wisi-prj-compiler project) project name value))
 	    (setq result t))
-	  (when (wisi-xref-parse-one (wisi-prj-xref project) project name value)
+	  (when (and (wisi-prj-xref project)
+		     (wisi-xref-parse-one (wisi-prj-xref project) project name value))
 	    (setq result t))
 
 	  (unless result
@@ -760,9 +822,13 @@ case, return the project."
       ;; If no parser, prj-file is just a placeholder; there is no file to parse.
       ;; For example, sal-android-prj has no project file.
 	(funcall parser prj-file project)
-	(wisi-prj-parse-final project prj-file)
-	(wisi-compiler-parse-final (wisi-prj-compiler project) project prj-file)
-	(wisi-xref-parse-final (wisi-prj-xref project) project prj-file))
+	(wisi-prj-parse-final project prj-file))
+
+    ;; We do this even without a parser, so project builders can just
+    ;; set the compiler and xref; see gnat-alire.el
+    ;; create-alire-project.
+    (wisi-compiler-parse-final (wisi-prj-compiler project) project prj-file)
+    (wisi-xref-parse-final (wisi-prj-xref project) project prj-file)
 
     (when cache
       ;; Cache the project properties
@@ -775,7 +841,15 @@ case, return the project."
 (defun wisi-prj-show-prj-path ()
   "Show the compiler project file search path."
   (interactive)
-  (wisi-compiler-show-prj-path (wisi-prj-compiler (wisi-prj-require-prj))))
+  (let ((path (wisi-compiler-prj-path (wisi-prj-compiler (wisi-prj-require-prj)))))
+    (if path
+	(progn
+	  (pop-to-buffer (get-buffer-create "*project file search path*"))
+	  (erase-buffer)
+	  (dolist (file path)
+	    (insert (format "%s\n" file))))
+      (message "no project file search path set")
+      )))
 
 (defun wisi-prj-show-src-path ()
   "Show the project source file search path."
@@ -792,26 +866,26 @@ case, return the project."
 (defun wisi-fix-compiler-error ()
   "Attempt to fix the current compiler error.
 Point must be at the source location referenced in a compiler error.
-In `compilation-last-buffer', point must be at the compiler error.
+In `next-error-last-buffer', point must be at the compiler error.
 Leave point at fixed code."
   (interactive)
   (let ((source-buffer (current-buffer))
 	(line-move-visual nil)); screws up next-line otherwise
 
     (cond
-     ((equal compilation-last-buffer wisi-error-buffer)
+     ((equal next-error-last-buffer wisi-error-buffer)
       (set-buffer source-buffer)
       (wisi-repair-error))
 
      (t
-      (with-current-buffer compilation-last-buffer
+      (with-current-buffer next-error-last-buffer
 	(let ((comp-buf-pt (point))
 	      (success
 	       (wisi-compiler-fix-error
 		(wisi-prj-compiler (wisi-prj-require-prj))
 		source-buffer)))
 	  ;; restore compilation buffer point
-	  (set-buffer compilation-last-buffer)
+	  (set-buffer next-error-last-buffer)
 	  (goto-char comp-buf-pt)
 
 	  (unless success
@@ -1252,13 +1326,13 @@ with \\[universal-argument]."
 (defun wisi-case-activate-keys (map)
   "Modify the key bindings for all the keys that should adjust casing."
   (mapc (function
-	 (lambda(key)
+	 (lambda (key)
 	   (define-key
 	     map
-	     (char-to-string key)
-	     'wisi-case-adjust-interactive)))
+	     (vector key)
+	     #'wisi-case-adjust-interactive)))
 	'( ?_ ?% ?& ?* ?\( ?\) ?- ?= ?+
-	      ?| ?\; ?: ?' ?\" ?< ?, ?. ?> ?/ ?\n 32 ?\r ))
+	      ?| ?\; ?: ?' ?\" ?< ?, ?. ?> ?/ ?\n ?\s ?\r ))
   )
 
 ;;;; xref backend
@@ -1288,7 +1362,8 @@ IDENTIFIER is from a user prompt with completion, or from
       (setq column (plist-get t-prop :column))
       )
 
-     ((string-match (wisi-xref-completion-regexp (wisi-prj-xref prj)) identifier)
+     ((and (wisi-prj-xref prj)
+	   (string-match (wisi-xref-completion-regexp (wisi-prj-xref prj)) identifier))
       ;; IDENTIFIER is from prompt/completion on wisi-xref-completion-table
       (setq ident (match-string 1 identifier))
 
@@ -1300,7 +1375,8 @@ IDENTIFIER is from a user prompt with completion, or from
 	(setq column (nth 2 loc))
 	))
 
-     ((string-match wisi-names-regexp identifier)
+     ((and (wisi-prj-xref prj)
+	   (string-match wisi-names-regexp identifier))
       ;; IDENTIFIER is from prompt/completion on wisi-names.
       (setq ident (match-string 1 identifier))
       (setq file (buffer-file-name))
@@ -1346,11 +1422,13 @@ IDENTIFIER is from a user prompt with completion, or from
 
 ;;;###autoload
 (defun wisi-prj-xref-backend ()
-  "For `xref-backend-functions'; return the current wisi project."
+  "Return the current wisi project if it has an xref backend.
+For `xref-backend-functions'."
   ;; We return the project, not the xref object, because the
   ;; wisi-xref-* functions need the project.
   (let ((prj (project-current)))
-    (when (wisi-prj-p prj)
+    (when (and (wisi-prj-p prj)
+	       (wisi-prj-xref prj))
       prj)))
 
 ;;;; project-find-functions alternatives
@@ -1401,15 +1479,16 @@ project is current."
   (when (or dominating-file (buffer-file-name))
     ;; buffer-file-name is nil in *compilation* buffer
     (let ((prj-file (cdr (assoc (or dominating-file (buffer-file-name)) wisi-prj--dominating-alist))))
-      (unless (string-equal prj-file wisi-prj--current-file)
-	(message "Switching to project file '%s'" prj-file)
-	(let ((old-prj (cdr (assoc  wisi-prj--current-file wisi-prj--cache)))
-	      (new-prj (cdr (assoc prj-file wisi-prj--cache))))
-	  (when (wisi-prj-p old-prj)
-	    (wisi-prj-deselect old-prj))
-	  (when (wisi-prj-p new-prj)
-	    (wisi-prj-select new-prj))
-	  (setq wisi-prj--current-file prj-file))))))
+      (when prj-file ;; don't switch if dominating-file not recognized.
+	(unless (string-equal prj-file wisi-prj--current-file)
+	  (message "Switching to project file '%s'" prj-file)
+	  (let ((old-prj (cdr (assoc  wisi-prj--current-file wisi-prj--cache)))
+		(new-prj (cdr (assoc prj-file wisi-prj--cache))))
+	    (when (wisi-prj-p old-prj)
+	      (wisi-prj-deselect old-prj))
+	    (when (wisi-prj-p new-prj)
+	      (wisi-prj-select new-prj))
+	    (setq wisi-prj--current-file prj-file)))))))
 
 ;;;###autoload
 (defun wisi-prj-current-cached (_dir)
@@ -1506,10 +1585,11 @@ not the current project."
 	  (unless new-prj
 	    ;; User may have used `wisi-prj-set-dominating' instead of
 	    ;; `wisi-prj-cache-dominating'; parse the project file now.
-	    (wisi-prj-parse-file
-	     :prj-file prj-file
-	     :init-prj (cdr (assoc-string prj-file wisi-prj--default))
-	     :cache t))
+	    (when (assoc-string prj-file wisi-prj--default)
+	      (wisi-prj-parse-file
+	       :prj-file prj-file
+	       :init-prj (cdr (assoc-string prj-file wisi-prj--default))
+	       :cache t)))
 	  (when new-prj (wisi-prj-select new-prj))))
       new-prj)))
 
@@ -1574,6 +1654,33 @@ Do The Right Thing to make PRJ-FILE active and selected; return the project."
       (memq #'wisi-prj-current-cached project-find-functions)
       (memq #'wisi-prj-current-parse project-find-functions)))
 
+(defun wisi-prompt-prj-file ()
+  "Prompt for a project file.
+Return nil if no file selected, the absolute file name
+otherwise. The file must have an extension from
+`wisi-prj-file-extensions'."
+  (let ((filename
+	 (condition-case-unless-debug nil
+	     (read-file-name
+	      "Project file: " ; prompt
+	      nil ; dir
+	      "" ; default-filename
+	      t   ; mustmatch
+	      nil; initial
+	      (lambda (name)
+		;; this allows directories, which enables navigating
+		;; to the desired file. We just assume the user won't
+		;; return a directory.
+		(or (file-accessible-directory-p name)
+		    (member (file-name-extension name) wisi-prj-file-extensions))))
+	   (error nil)
+	   )))
+
+  (unless (or (null filename)
+	      (file-name-absolute-p filename))
+    (setq filename (expand-file-name filename)))
+  filename))
+
 ;;;; project menu
 
 (defun wisi-prj--menu-compute ()
@@ -1620,7 +1727,7 @@ Menu displays cached wisi projects."
 	))
     ))
 
-(add-hook 'menu-bar-update-hook 'wisi-prj-menu-install)
+(add-hook 'menu-bar-update-hook #'wisi-prj-menu-install)
 
 (defun wisi-prj-completion-table ()
   "Return list of names of cached projects."

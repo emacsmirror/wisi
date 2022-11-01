@@ -20,35 +20,26 @@ pragma License (GPL);
 
 with Ada.Command_Line;
 with Ada.Directories;
-with GNATCOLL.Memory;
 with Run_Wisi_Common_Parse;
 with WisiToken.Text_IO_Trace;
 procedure Gen_Run_Wisi_LR_Text_Rep_Parse
 is
-   Trace               : aliased WisiToken.Text_IO_Trace.Trace;
-   Parse_Data_Template : aliased Parse_Data_Type;
+   Trace : aliased WisiToken.Text_IO_Trace.Trace;
+
+   Text_Rep_File_Name_Full : constant String := Ada.Directories.Containing_Directory
+     (Ada.Command_Line.Command_Name) & "/" & Text_Rep_File_Name;
+
+   function Factory return WisiToken.Parse.Base_Parser_Access
+   is begin
+      return new WisiToken.Parse.LR.Parser.Parser'
+        (Create_Parser
+           (Trace'Unchecked_Access,
+            User_Data                      => new Parse_Data_Type,
+            Language_Fixes                 => Language_Fixes,
+            Language_Matching_Begin_Tokens => Language_Matching_Begin_Tokens,
+            Language_String_ID_Set         => Language_String_ID_Set,
+            Text_Rep_File_Name             => Text_Rep_File_Name_Full));
+   end Factory;
 begin
-   --  FIXME: report memory during lexer, parser create
-   --  WisiToken.Trace_Memory            := 1;
-   --  WisiToken.Trace_Incremental_Parse := 1;
-   GNATCOLL.Memory.Configure
-     (Activate_Monitor      => True,
-      Stack_Trace_Depth     => 0,
-      Reset_Content_On_Free => False);
-
-   declare
-      Lexer : constant WisiToken.Lexer.Handle := Create_Lexer (Trace'Unchecked_Access);
-      --  No point in reporting lexer memory; it's very small
-      Parse_Table : constant WisiToken.Parse.LR.Parse_Table_Ptr := Create_Parse_Table
-        (Ada.Directories.Containing_Directory (Ada.Command_Line.Command_Name) & "/" & Text_Rep_File_Name);
-   begin
-      Trace.Put_Line ("parse table created");
-      WisiToken.Report_Memory (Trace, Prefix => True);
-
-      Run_Wisi_Common_Parse.Parse_File
-        ((Descriptor, Lexer, Parse_Table,
-          Create_Productions, Partial_Parse_Active, Partial_Parse_Byte_Goal, Language_Fixes,
-          Language_Matching_Begin_Tokens, Language_String_ID_Set, Parse_Data_Template'Unchecked_Access),
-         Trace'Unchecked_Access);
-   end;
+   Run_Wisi_Common_Parse.Parse_File (Factory'Unrestricted_Access, Trace'Unchecked_Access);
 end Gen_Run_Wisi_LR_Text_Rep_Parse;

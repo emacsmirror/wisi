@@ -355,7 +355,8 @@ package body WisiToken.Parse.LR.McKenzie_Recover is
                      --  we've applied all of Result.Ops, to avoid copying the error node
                      --  for each op.
                      Error_Recover_Ops : Recover_Op_Nodes_Arrays.Vector := To_Recover_Op_Nodes (Result.Ops);
-                     --  WORKAROUND: GNAT Community 2021 is confused about this being constant
+                     --  WORKAROUND: GNAT Community 2021 is confused about this being
+                     --  constant. AdaCore Eurocontrol contract ticket V707-027.
                      pragma Warnings (Off, Error_Recover_Ops);
 
                      Op_Index : SAL.Base_Peek_Type := No_Insert_Delete;
@@ -520,7 +521,7 @@ package body WisiToken.Parse.LR.McKenzie_Recover is
                               --  Config stack, not a parser stack. So we duplicate part of it.
                               if Stack_Matches_Ops then
                                  if not (Nonterm = Tree.Label (Tree.Peek (Stack)) and
-                                           Op.Nonterm = Tree.ID (Parser_State.Stream, Tree.Peek (Stack)))
+                                           Op.Nonterm = Tree.ID (Tree.Peek (Stack)))
                                  then
                                     Raise_Bad_Config ("Undo_Reduce does not match stack top in apply config");
                                  end if;
@@ -540,7 +541,7 @@ package body WisiToken.Parse.LR.McKenzie_Recover is
                               --  encounter an error; test_mckenzie_recover.adb Error_3.
 
                               if Stack_Matches_Ops then
-                                 if not (Op.PB_ID = Tree.ID (Parser_State.Stream, Tree.Peek (Stack))) then
+                                 if not (Op.PB_ID = Tree.ID (Tree.Peek (Stack))) then
                                     Raise_Bad_Config
                                       ("Push_Back does not match stack top in apply config: " &
                                          Image (Op, Tree.Lexer.Descriptor.all));
@@ -620,7 +621,8 @@ package body WisiToken.Parse.LR.McKenzie_Recover is
 
                                     declare
                                        --  WORKAROUND: GNAT Community 2021 reports "'Op' must be a variable"
-                                       --  if we use this expression for the Op parameter.
+                                       --  if we use this expression for the Op parameter. AdaCore
+                                       --  Eurocontrol contract ticket V707-027.
                                        Op : Recover_Op_Nodes renames Error_Recover_Ops (Op_Index);
                                     begin
                                        Parser_State.Do_Delete

@@ -37,8 +37,8 @@ package WisiToken.Productions is
       --  Recursion for each token. There may be more than one recursion cycle for any token,
       --  but we don't track that.
 
-      Post_Parse_Action : Syntax_Trees.Post_Parse_Action;
-      In_Parse_Action   : Syntax_Trees.In_Parse_Actions.In_Parse_Action;
+      Post_Parse_Action : Syntax_Trees.Post_Parse_Action := null;
+      In_Parse_Action   : Syntax_Trees.In_Parse_Actions.In_Parse_Action := null;
    end record
    with Dynamic_Predicate =>
      (Tokens.Length = 0 or Tokens.First_Index = 1) and

@@ -15,25 +15,10 @@ pragma License (Modified_GPL);
 
 with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
-with WisiToken.Lexer;
-with WisiToken.Parse.LR.Parser;
 with WisiToken.Syntax_Trees;
 package Wisi.Parse_Context is
 
    Not_Found : exception;
-
-   type Language is record
-      Descriptor              : WisiToken.Descriptor_Access_Constant;
-      Lexer                   : WisiToken.Lexer.Handle;
-      Table                   : WisiToken.Parse.LR.Parse_Table_Ptr;
-      Productions             : WisiToken.Syntax_Trees.Production_Info_Trees.Vector;
-      Partial_Parse_Active    : access Boolean;
-      Partial_Parse_Byte_Goal : access WisiToken.Buffer_Pos;
-      Fixes                   : WisiToken.Parse.LR.Parser.Language_Fixes_Access;
-      Matching_Begin_Tokens   : WisiToken.Parse.LR.Parser.Language_Matching_Begin_Tokens_Access;
-      String_ID_Set           : WisiToken.Parse.LR.Parser.Language_String_ID_Set_Access;
-      Parse_Data_Template     : Wisi.Parse_Data_Access;
-   end record;
 
    type Parse_Context is tagged limited record
       --  'tagged' for Object.Method notation
@@ -49,7 +34,13 @@ package Wisi.Parse_Context is
       --  For Incremental parse; after editing, there may be empty space at
       --  the end of Text_Buffer.
 
-      Parser : WisiToken.Parse.LR.Parser.Parser;
+      Parser : WisiToken.Parse.Base_Parser_Access;
+
+      Prev_Tree : WisiToken.Syntax_Trees.Tree;
+      --  Copy of Parser.Tree before edits applied; useful for debugging.
+
+      Save_Prev_Text_Tree : Boolean := False;
+      --  If true, save text and copy tree before each edit.
 
       Root_Save_Edited_Name : Ada.Strings.Unbounded.Unbounded_String;
       --  If not "", save source text after the edit in a parse_incremental command,
@@ -57,44 +48,43 @@ package Wisi.Parse_Context is
       --  increments.
 
       Save_Edited_Count : Integer := 0;
+
+      Frozen : Boolean := False;
+      --  Used by emacs_wisi_common_parse.Parse_Stream to prevent any
+      --  operations on Parse_Context.
    end record;
    type Parse_Context_Access is access all Parse_Context;
 
    function Create_No_File
-     (Language : in Wisi.Parse_Context.Language;
-      Trace    : in WisiToken.Trace_Access)
+     (Factory : in WisiToken.Parse.Factory;
+      Trace   : in WisiToken.Trace_Access)
      return Parse_Context_Access;
 
    procedure Create_No_Text
      (File_Name : in String;
-      Language  : in Wisi.Parse_Context.Language;
+      Factory   : in WisiToken.Parse.Factory;
       Trace     : in WisiToken.Trace_Access);
 
    procedure Set_File (File_Name : in String; Parse_Context : in Parse_Context_Access);
 
    function Find_Create
      (File_Name : in String;
-      Language  : in Wisi.Parse_Context.Language;
+      Factory   : in WisiToken.Parse.Factory;
       Trace     : in WisiToken.Trace_Access)
      return Parse_Context_Access;
-   --  If a context for File_Name exists, return it if Language matches.
+   --  If a context for File_Name exists, return it.
    --
-   --  If no context found for File_Name, create one, return it.
+   --  If no context found for File_Name, create one using Factory, return it.
    --
    --  Raise Protocol_Error if Source_File_Name is an empty string.
-   --
-   --  Raise WisiToken.User_Error if context found for File_Name, but Language does not match.
 
    function Find
      (File_Name : in String;
-      Language  : in Wisi.Parse_Context.Language;
       Have_Text : in Boolean := False)
      return Parse_Context_Access;
-   --  If a context for File_Name exists, return it if Language matches.
+   --  If a context for File_Name exists, return it.
    --
    --  Raise Protocol_Error if Source_File_Name is an empty string.
-   --
-   --  Raise WisiToken.User_Error if context found for File_Name, but Language does not match.
    --
    --  Raise Not_Found if no context found for File_Name.
    --  If Have_Text, raise Not_Found if Text_Buffer is empty.
@@ -129,6 +119,11 @@ package Wisi.Parse_Context is
       Changes       : in     Change_Lists.List;
       KMN_List      :    out WisiToken.Parse.KMN_Lists.List);
    --  Changes must be UTF-8.
+
+   procedure Dump_Prev_Tree
+     (Context   : in Parse_Context;
+      File_Name : in String);
+   --  Output Context.Prev_Tree text format to File_Name.
 
    procedure Save_Text
      (Context   : in Parse_Context;

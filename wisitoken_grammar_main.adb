@@ -24,6 +24,7 @@
 with SAL;
 with WisiToken.Lexer.re2c;
 with wisitoken_grammar_re2c_c;
+with WisiToken.Parse.LR;
 with Wisitoken_Grammar_Actions; use Wisitoken_Grammar_Actions;
 package body Wisitoken_Grammar_Main is
 
@@ -960,11 +961,6 @@ package body Wisitoken_Grammar_Main is
       return Table;
    end Create_Parse_Table;
 
-   function Create_Lexer (Trace : in WisiToken.Trace_Access) return WisiToken.Lexer.Handle
-   is begin
-      return Lexer.New_Lexer (Trace, Wisitoken_Grammar_Actions.Descriptor'Access);
-   end Create_Lexer;
-
    function Create_Productions return WisiToken.Syntax_Trees.Production_Info_Trees.Vector
    is begin
       return Result : WisiToken.Syntax_Trees.Production_Info_Trees.Vector do
@@ -1032,4 +1028,16 @@ package body Wisitoken_Grammar_Main is
       end return;
    end Create_Productions;
 
+   function Create_Parser
+     (Trace      : in WisiToken.Trace_Access;
+      User_Data  : in WisiToken.Syntax_Trees.User_Data_Access)
+     return WisiToken.Parse.LR.Parser_No_Recover.Parser
+   is begin
+      return Parser : WisiToken.Parse.LR.Parser_No_Recover.Parser do
+         Parser.Tree.Lexer := Lexer.New_Lexer (Trace, Wisitoken_Grammar_Actions.Descriptor'Access);
+         Parser.Productions := Create_Productions;
+         Parser.User_Data := User_Data;
+         Parser.Table := Create_Parse_Table;
+      end return;
+   end Create_Parser;
 end Wisitoken_Grammar_Main;

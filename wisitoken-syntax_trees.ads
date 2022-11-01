@@ -110,6 +110,7 @@ with SAL.Gen_Unbounded_Sparse_Ordered_Sets;
 with SAL.Generic_Decimal_Image;
 with WisiToken.Lexer;
 package WisiToken.Syntax_Trees is
+   use all type Ada.Containers.Count_Type;
    use all type SAL.Base_Peek_Type;
 
    type Node (<>) is private;
@@ -404,7 +405,8 @@ package WisiToken.Syntax_Trees is
      (Tree    : in Syntax_Trees.Tree;
       Stream  : in Stream_ID;
       Element : in Stream_Index)
-     return Rooted_Ref;
+     return Rooted_Ref
+   with Pre => Element /= Invalid_Stream_Index;
 
    type Stream_Node_Parents is record
       Ref     : Stream_Node_Ref;
@@ -421,6 +423,11 @@ package WisiToken.Syntax_Trees is
 
    function Parents_Valid (Ref : in Stream_Node_Parents) return Boolean;
    --  True if Parents gives the path from Element.Node to Node, or Element or Node is invalid.
+
+   function Valid_Stream_Node_Parents
+     (Tree : in Syntax_Trees.Tree;
+      Ref  : in Stream_Node_Parents)
+     return Boolean;
 
    function To_Stream_Node_Parents (Tree : in Syntax_Trees.Tree; Ref : in Stream_Node_Ref) return Stream_Node_Parents
    with Pre => Ref = Invalid_Stream_Node_Ref or else Tree.Parents_Set or else
@@ -557,10 +564,6 @@ package WisiToken.Syntax_Trees is
 
    type User_Data_Access is access all User_Data_Type'Class;
    type User_Data_Access_Constant is access constant User_Data_Type'Class;
-
-   function New_User_Data (Template : in User_Data_Type) return User_Data_Access
-   is (null);
-   --  Return a new empty object with the same type as Template.
 
    procedure Reset (User_Data : in out User_Data_Type) is null;
    --  Reset to start a new parse.
@@ -733,8 +736,8 @@ package WisiToken.Syntax_Trees is
      Post => Tree.Is_Valid (New_Stream'Result);
    --  Create a new parse stream, initially copied from Old_Stream.
 
-   function Stream_Count (Tree : in Syntax_Trees.Tree) return Natural;
-   --  Number of active streams.
+   function Stream_Count (Tree : in Syntax_Trees.Tree) return SAL.Base_Peek_Type;
+   --  Number of parse streams plus the shared stream.
 
    function First_Parse_Stream (Tree : in Syntax_Trees.Tree) return Stream_ID
    with Pre => Tree.Stream_Count >= 2;
@@ -893,7 +896,7 @@ package WisiToken.Syntax_Trees is
       Productions    : in     Production_Info_Trees.Vector;
       User_Data      : in     Syntax_Trees.User_Data_Access_Constant;
       First_Terminal : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref) and
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref) and
                Tree.Label (Ref.Ref.Element) = Nonterm and
                (if First_Terminal
                 then not Tree.Is_Empty_Nonterm (Ref.Ref.Node)
@@ -1045,6 +1048,7 @@ package WisiToken.Syntax_Trees is
    with Pre => Element = Invalid_Stream_Index or else
                (Tree.Contains (Stream, Element) or Tree.Contains (Tree.Shared_Stream, Element));
    --  If Element is Invalid_Stream_Index, result is Stream_First (= SOI).
+   --  Does not follow Stream.Shared_Link
 
    function Stream_Next
      (Tree : in Syntax_Trees.Tree;
@@ -1111,7 +1115,7 @@ package WisiToken.Syntax_Trees is
      (Tree   : in     Syntax_Trees.Tree;
       Ref    : in out Stream_Node_Parents;
       Rooted : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref),
+   with Pre => Valid_Stream_Node_Parents (Tree, Ref),
      Post => Correct_Stream_Node (Tree, Ref.Ref) and
              (Ref.Ref = Invalid_Stream_Node_Ref or else
                 (if Rooted
@@ -1242,17 +1246,6 @@ package WisiToken.Syntax_Trees is
    --  Delete Element from Stream. If Element = Stream.Stack_Top,
    --  Stack_Top is set to Invalid_Stream_Index.
 
-   function ID
-     (Tree    : in Syntax_Trees.Tree;
-      Stream  : in Stream_ID;
-      Element : in Stream_Index)
-     return Token_ID
-   with Pre => Tree.Contains (Stream, Element) or Tree.Contains (Tree.Shared_Stream, Element);
-   --  The precondition allows either stream; Current_Token is
-   --  either a Source_Terminal from Shared_Stream or a Virtual_Terminal
-   --  in Stream input from error recovery; in incremental parse, it
-   --  could be a Source_Terminal in Stream input from push_back.
-
    function Label (Tree : in Syntax_Trees.Tree; Node : in Valid_Node_Access) return Node_Label;
    function Label (Tree : in Syntax_Trees.Tree; Element : in Stream_Index) return Node_Label
    with Pre => Element /= Invalid_Stream_Index;
@@ -1316,16 +1309,8 @@ package WisiToken.Syntax_Trees is
       Region : in Buffer_Region)
    with Pre => Tree.Is_Nonterm (Node);
 
-   function ID
-     (Tree : in Syntax_Trees.Tree;
-      Node : in Valid_Node_Access)
-     return WisiToken.Token_ID;
-
-   function ID
-     (Tree : in Syntax_Trees.Tree;
-      Ref  : in Stream_Node_Ref)
-     return WisiToken.Token_ID;
-   --  One of Ref.Node.ID, Ref.Element.Node.ID, Invalid_Token_ID
+   function ID (Tree : in Syntax_Trees.Tree; Node : in Valid_Node_Access) return WisiToken.Token_ID;
+   function ID (Tree : in Syntax_Trees.Tree; Element : in Stream_Index) return Token_ID;
 
    function Production_ID
      (Tree : in Syntax_Trees.Tree;
@@ -1372,7 +1357,7 @@ package WisiToken.Syntax_Trees is
       Parse_Stream         : in Stream_ID;
       Trailing_Non_Grammar : in Boolean := False)
      return WisiToken.Buffer_Region
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref);
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref);
    --  Same as Byte_Region (Stream_Node_Ref), for use when parents are
    --  not set. See Prev_Terminal (tree, stream_node_parents) for meaning
    --  of Parse_Stream.
@@ -1414,11 +1399,11 @@ package WisiToken.Syntax_Trees is
    with Pre => Tree.Editable;
    --  Lines of tokens in Node. First is the line started by the first
    --  New_Line or SOI (start of input) before the first terminal in
-   --  Node. If Trailing_Non_Grammar, Last is the line ended by the last
-   --  New_Line in the first non_grammar array after the last terminal of
-   --  Node, or EOI (end of input); if not Trailing_Non_Grammar, Last is
-   --  the line ended by the first New_Line or EOI after the last
-   --  terminal of Node.
+   --  Node. If Trailing_Non_Grammar and the last terminal of Node has
+   --  Non_Grammar, Last is the line ended by the last New_Line of
+   --  Last_Terminal (Node).Non_Grammar; if not Trailing_Non_Grammar or
+   --  Node does not have Non_Grammar, Last is the line ended by the
+   --  first New_Line or EOI after the last terminal of Node.
    --
    --  Trailing_Non_Grammar => False is used to get the line_region of a
    --  multi-line token.
@@ -1450,7 +1435,7 @@ package WisiToken.Syntax_Trees is
       Parse_Stream         : in Stream_ID;
       Trailing_Non_Grammar : in Boolean := True)
      return WisiToken.Line_Region
-   with Pre => Tree.Valid_Stream_Node (Ref.Ref) and Parents_Valid (Ref);
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref);
    --  Same as Line_Region (Stream_Node_Ref), for use when parents are
    --  not set. See Prev_Terminal (tree, stream_node_parents) for meaning
    --  of Parse_Stream.
@@ -1493,6 +1478,12 @@ package WisiToken.Syntax_Trees is
       Node : in Valid_Node_Access)
      return Recover_Token;
    --  Treat Node as a stream element.
+
+   function Children_Recover_Tokens
+     (Tree : in Syntax_Trees.Tree;
+      Node : in Valid_Node_Access)
+     return Recover_Token_Array
+   with Pre => Tree.Label (Node) = Nonterm;
 
    function Children_Recover_Tokens
      (Tree    : in Syntax_Trees.Tree;
@@ -1564,15 +1555,15 @@ package WisiToken.Syntax_Trees is
       Node : in Valid_Node_Access;
       ID   : in Token_ID)
      return Node_Access;
-   --  Return the descendant of Node (may be Node) whose ID is ID, or
-   --  Invalid_Node_Access if none match.
+   --  Return the descendant of Node (may be Node; depth first search)
+   --  whose ID is ID, or Invalid_Node_Access if none match.
 
    function Find_Descendant
      (Tree      : in     Syntax_Trees.Tree;
       Node      : in     Valid_Node_Access;
       Predicate : access function (Tree : in Syntax_Trees.Tree; Node : in Valid_Node_Access) return Boolean)
      return Node_Access;
-   --  Return the first descendant of Node (may be Node; breadth first
+   --  Return the first descendant of Node (may be Node; depth first
    --  search) for which Predicate returns True, or Invalid_Node_Access
    --  if none do.
 
@@ -1620,7 +1611,7 @@ package WisiToken.Syntax_Trees is
      (Tree         : in     Syntax_Trees.Tree;
       Ref          : in out Stream_Node_Parents;
       Parse_Stream : in     Stream_ID)
-   with Pre => Tree.Valid_Stream_Node (Ref.Ref) and Parents_Valid (Ref),
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
      Post => Tree.Correct_Stream_Node (Ref.Ref) and Parents_Valid (Ref);
 
    function First_Non_Grammar
@@ -1650,7 +1641,7 @@ package WisiToken.Syntax_Trees is
    procedure Next_Non_Grammar
      (Tree : in     Syntax_Trees.Tree;
       Ref  : in out Stream_Node_Parents)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref),
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
      Post => Tree.Correct_Stream_Node (Ref.Ref) and Parents_Valid (Ref);
 
    type New_Line_Ref is record
@@ -1670,7 +1661,7 @@ package WisiToken.Syntax_Trees is
       --  new_line is the last; it was found by Prev_New_Line;
 
       Pos : Base_Buffer_Pos := Invalid_Buffer_Pos;
-      --  The buffer position of the new_line.
+      --  The byte position of the new_line.
 
       Line : Base_Line_Number_Type := Invalid_Line_Number;
       --  The line number after the new_line.
@@ -1694,13 +1685,48 @@ package WisiToken.Syntax_Trees is
    --  giving a line number, computes Start_Line, and continues as
    --  above.
 
+   function Line_At_Node
+     (Tree   : in Syntax_Trees.Tree;
+      Stream : in Stream_ID;
+      Ref    : in Real_Recover_Token)
+     return Base_Line_Number_Type;
+   --  Return line at first byte of Ref.Node; Invalid_Line_Number if too hard to find.
+
+   function Line_At_Node
+     (Tree : in Syntax_Trees.Tree;
+      Node : in Valid_Node_Access)
+     return Line_Number_Type
+   with Pre => Tree.Parents_Set;
+   --  Return line at first byte of Node.
+
+   function Line_At_Node
+     (Tree         : in Syntax_Trees.Tree;
+      Ref          : in Stream_Node_Ref;
+      Parse_Stream : in Stream_ID)
+     return Line_Number_Type
+   with Pre => Valid_Stream_Node (Tree, Ref);
+   --  Return line at first byte of Ref.Node.
+
+   function Line_At_Node
+     (Tree         : in Syntax_Trees.Tree;
+      Ref          : in Stream_Node_Parents;
+      Parse_Stream : in Stream_ID)
+     return Line_Number_Type
+   with Pre => Valid_Stream_Node_Parents (Tree, Ref);
+   --  Return line at first byte of Ref.Node.
+
    function First_Source_Terminal
      (Tree                 : in Syntax_Trees.Tree;
       Node                 : in Valid_Node_Access;
       Trailing_Non_Grammar : in Boolean;
       Following            : in Boolean)
      return Node_Access
-   with Pre => (if Following then Tree.Parents_Set else True);
+   with Pre => (if Following then Tree.Parents_Set else True),
+    Post =>
+       (if Following
+        then First_Source_Terminal'Result /= Invalid_Node_Access and then
+         (Tree.Label (First_Source_Terminal'Result) = Source_Terminal or
+            Tree.Non_Grammar_Const (First_Source_Terminal'Result).Length > 0));
    --  Return a terminal node that can give byte or char pos.
    --
    --  If Trailing_Non_Grammar, return first terminal in Node that is a
@@ -1740,6 +1766,13 @@ package WisiToken.Syntax_Trees is
 
    function Prev_Source_Terminal
      (Tree                 : in Syntax_Trees.Tree;
+      Node                 : in Valid_Node_Access;
+      Trailing_Non_Grammar : in Boolean)
+     return Node_Access
+   with Pre => Tree.Parents_Set;
+
+   function Prev_Source_Terminal
+     (Tree                 : in Syntax_Trees.Tree;
       Ref                  : in Stream_Node_Ref;
       Trailing_Non_Grammar : in Boolean)
      return Stream_Node_Ref
@@ -1757,7 +1790,7 @@ package WisiToken.Syntax_Trees is
       Ref                  : in out Stream_Node_Parents;
       Parse_Stream         : in     Stream_ID;
       Trailing_Non_Grammar : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and not Tree.Parents_Set,
+   with Pre => Valid_Stream_Node_Parents (Tree, Ref),
      Post   => Tree.Correct_Stream_Node (Ref.Ref);
 
    function Count_Terminals (Tree : in Syntax_Trees.Tree; Node : in Valid_Node_Access) return Natural;
@@ -1777,16 +1810,8 @@ package WisiToken.Syntax_Trees is
       Node    : in     Valid_Node_Access;
       Parents : in out Node_Stacks.Stack)
      return Node_Access;
-   --  Same as First_Terminal (Tree, Node), also initializes Parents to
-   --  store path from Node to the first terminal, for Next_Terminal in
-   --  nodes that have unset parent links, or to limit Next_Terminal to
-   --  descendants of Node.
-   --
-   --  We don't have "Pre => Parents.Is_Empty" or "Post => Parents_Valid
-   --  (Parents, First_Terminal'Result)", because we call this function
-   --  recursively to create Parents.
-   --
-   --  Visible for use with error recovery Configuration input stream.
+   --  Same as First_Terminal (Tree, Node), also updates Parents to
+   --  store path from Node to the first terminal.
 
    procedure First_Terminal
      (Tree : in     Syntax_Trees.Tree;
@@ -1821,7 +1846,7 @@ package WisiToken.Syntax_Trees is
      (Tree      : in     Syntax_Trees.Tree;
       Ref       : in out Stream_Node_Parents;
       Following : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref),
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
      Post => Parents_Valid (Ref);
    --  Update Ref to first terminal in Ref.Ref.Node or, if Following, a
    --  following stream element - continues search in Shared_Stream.
@@ -1857,7 +1882,7 @@ package WisiToken.Syntax_Trees is
       Ref          : in out Stream_Node_Parents;
       Parse_Stream : in     Stream_ID;
       Preceding    : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref),
+   with Pre => Valid_Stream_Node_Parents (Tree, Ref),
      Post => Parents_Valid (Ref);
    --  Update Ref to last terminal of Ref.Ref.Element.Node or, if
    --  Preceding, preceding element.
@@ -1992,8 +2017,8 @@ package WisiToken.Syntax_Trees is
      (Tree      : in     Syntax_Trees.Tree;
       Ref       : in out Syntax_Trees.Stream_Node_Parents;
       Following : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref),
-     Post => Correct_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref);
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
+     Post => Tree.Correct_Stream_Node (Ref.Ref) and Parents_Valid (Ref);
    --  Return first terminal with valid Sequential_Index in Ref.Node or,
    --  if Following, a following stream element; continues search in
    --  Tree.Shared_Stream. Invalid_Stream_Node_Parents if none found.
@@ -2035,7 +2060,7 @@ package WisiToken.Syntax_Trees is
       Ref          : in out Syntax_Trees.Stream_Node_Parents;
       Parse_Stream : in     Stream_ID;
       Preceding    : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref),
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
      Post => Correct_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref);
    --  Update Ref to last terminal with valid Sequential_Index in
    --  Ref.Node or, if Preceding, a preceding stream element; if
@@ -2060,7 +2085,7 @@ package WisiToken.Syntax_Trees is
      (Tree      : in     Syntax_Trees.Tree;
       Ref       : in out Syntax_Trees.Stream_Node_Parents;
       Following : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref),
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
      Post => Correct_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref);
    --  Update Node to the first terminal with valid Sequential_Index
    --  succeeding Node. Can step past EOI. If not Following, do not step
@@ -2079,7 +2104,7 @@ package WisiToken.Syntax_Trees is
       Ref          : in out Stream_Node_Parents;
       Parse_Stream : in     Stream_ID;
       Preceding    : in     Boolean)
-   with Pre => Valid_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref),
+   with Pre => Tree.Valid_Stream_Node_Parents (Ref),
      Post => Correct_Stream_Node (Tree, Ref.Ref) and Parents_Valid (Ref);
 
    function Get_IDs
@@ -2094,7 +2119,7 @@ package WisiToken.Syntax_Trees is
    --  zero streams, so these subprograms have no stream argument.
    --
    --  Some of these are also used for Packrat parsing, and don't have a
-   --  precondition of Fully_Parsed.
+   --  precondition.
 
    function Cleared (Tree : in Syntax_Trees.Tree) return Boolean;
    --  True if there are no streams and no nodes.
@@ -2107,9 +2132,11 @@ package WisiToken.Syntax_Trees is
    --  Shared_Stream holds a lexed or edited stream.
 
    function Fully_Parsed (Tree : in Syntax_Trees.Tree) return Boolean;
-   --  True if there is only one parse stream, and it has only two
-   --  elements; SOI with the start state and the tree root (EOI is only
-   --  in the shared stream).
+   --  True if Tree.Root is valid; a parse succeeded.
+   --
+   --  LR parse leaves a parse stream containing SOI and root; Packrat
+   --  parse does not use a parse stream, it just creates nonterminal
+   --  nodes.
 
    function Editable (Tree : in Syntax_Trees.Tree) return Boolean;
    --  True if Clear_Parse_Streams and Set_Parents have been called; the
@@ -2161,22 +2188,15 @@ package WisiToken.Syntax_Trees is
       File_Name : in     String);
    --  Read the output of Put_Tree from File_Name, populate Tree.
 
-   procedure Clear_Parse_Streams
-     (Tree       : in out Syntax_Trees.Tree;
-      Keep_Nodes : in     Valid_Node_Access_Lists.List := Valid_Node_Access_Lists.Empty_List)
-   with Pre => Tree.Fully_Parsed or Tree.Stream_Count = 1,
+   procedure Clear_Parse_Streams (Tree : in out Syntax_Trees.Tree);
+   --  Delete the parse streams, but not the nodes they reference.
+
+   procedure Finish_Parse (Tree : in out Syntax_Trees.Tree)
+   with Pre => Tree.Root /= Invalid_Node_Access,
      Post => Tree.Editable;
-   --  If Tree.Root is not set, set it to the root of the single
-   --  remaining parse stream. Delete the parse stream and shared stream.
-   --  Delete all nodes not reachable from the root, and not Tree.SOI,
-   --  Tree.EOI, or in Keep_Nodes. Also call Set_Parents if not
+   --  Delete the parse streams and shared stream. Delete all nodes
+   --  not reachable from the root. Call Set_Parents if not
    --  Tree.Parents_Set.
-   --
-   --  Keep_Nodes should be set to nodes that occur in errors, or are
-   --  deleted by error recovery; they may be referenced by post-parse
-   --  actions.
-   --
-   --  No precondition for Packrat parser.
 
    function Parents_Set (Tree : in Syntax_Trees.Tree) return Boolean;
 
@@ -2194,12 +2214,13 @@ package WisiToken.Syntax_Trees is
 
    function Root (Tree : in Syntax_Trees.Tree) return Node_Access
    with Pre => Tree.Valid_Root;
-   --  Tree.Root, or the root in the last parse stream if Tree.Root is
-   --  not set. Can be Invalid_Node_Access if input syntax does not allow
-   --  parsing to succeed.
+   --  The node set by Set_Root; Invalid_Node_Access if that has not been called.
 
    procedure Set_Root (Tree : in out Syntax_Trees.Tree; New_Root : in Valid_Node_Access)
-   with Pre => Tree.Label (New_Root) = Nonterm and then Tree.Child_Count (New_Root) > 0;
+   with Pre =>
+     Tree.ID (New_Root) = Tree.Lexer.Descriptor.Accept_ID and then
+     Tree.Label (New_Root) = Nonterm and then
+     Tree.Child_Count (New_Root) > 0;
    --  Set Tree.Root to Root. If New_Root.Children does not start with
    --  Tree.SOI, prepend it. If New_Root.Children does not end with
    --  Tree.EOI, append it.
@@ -2388,8 +2409,7 @@ package WisiToken.Syntax_Trees is
       User_Data     : in     User_Data_Access_Constant)
    with Pre =>
      Tree.Label (Deleted_Node) in Terminal_Label and
-     Tree.Valid_Stream_Node (Prev_Terminal.Ref) and
-     Parents_Valid (Prev_Terminal) and
+     Tree.Valid_Stream_Node_Parents (Prev_Terminal) and
      Prev_Terminal.Ref.Stream /= Tree.Shared_Stream and
      Tree.Label (Prev_Terminal.Ref.Node) = Source_Terminal;
    --  Copy Prev_Terminal.Ref.Node, add Deleted_Node to
@@ -2550,7 +2570,7 @@ package WisiToken.Syntax_Trees is
       Error_Ref : in out Stream_Node_Parents;
       Errors    : in     Error_Data_Lists.List;
       User_Data : in     User_Data_Access_Constant)
-   with Pre => Parents_Valid (Error_Ref) and
+   with Pre => Tree.Valid_Stream_Node_Parents (Error_Ref) and
      (for all Err of Errors => not Tree.Contains_Error (Error_Ref.Ref.Node, Err));
    --  Copy Error_Ref.Node and parents, add Errors to its error list.
    --  Update Error_Ref to point to copied node.
@@ -2682,7 +2702,7 @@ package WisiToken.Syntax_Trees is
    function Error_Deleted (Error : in Stream_Error_Ref) return Valid_Node_Access_Lists.Cursor;
 
    function First_Error (Tree : in Syntax_Trees.Tree) return Error_Ref
-   with Pre => Tree.Editable;
+   with Pre => Tree.Parents_Set;
    --  Return first error node in Tree.
 
    function First_Error (Tree : in Syntax_Trees.Tree; Stream : in Stream_ID) return Stream_Error_Ref;
@@ -2958,8 +2978,6 @@ package WisiToken.Syntax_Trees is
    --  in debugger for a stable way to access Node.
 
 private
-   use all type Ada.Containers.Count_Type;
-
    type Error_List_Access is access all Error_Data_Lists.List;
    procedure Free is new Ada.Unchecked_Deallocation (Error_Data_Lists.List, Error_List_Access);
 

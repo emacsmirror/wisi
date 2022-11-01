@@ -20,7 +20,6 @@ pragma License (GPL);
 
 with Ada.Strings.Unbounded;
 with System;
-with Wisi;
 with WisiToken.Parse;
 with Wisi.Parse_Context;
 package Emacs_Wisi_Common_Parse is
@@ -67,7 +66,7 @@ package Emacs_Wisi_Common_Parse is
      (Name                      : in String;
       Language_Protocol_Version : in String;
       Params                    : in Process_Start_Params;
-      Language                  : in Wisi.Parse_Context.Language;
+      Factory                   : in WisiToken.Parse.Factory;
       Trace                     : in WisiToken.Trace_Access);
 
    ----------

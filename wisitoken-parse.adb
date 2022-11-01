@@ -17,6 +17,8 @@
 
 pragma License (Modified_GPL);
 
+with Ada.Exceptions;
+with GNAT.Traceback.Symbolic;
 with WisiToken.In_Parse_Actions;
 package body WisiToken.Parse is
 
@@ -85,12 +87,12 @@ package body WisiToken.Parse is
       when Insert =>
          String'Write (Stream, Item.Ins_ID'Image);
          --  Ignore Ins_Before.
-         String'Write (Stream, Syntax_Trees.Get_Node_Index (Item.Ins_Node)'Image);
+         String'Write (Stream, " " & Syntax_Trees.Get_Node_Index (Item.Ins_Node)'Image);
 
       when Delete =>
          String'Write (Stream, Item.Del_ID'Image);
          --  Ignore Del_Index.
-         String'Write (Stream, Syntax_Trees.Get_Node_Index (Item.Del_Node)'Image);
+         String'Write (Stream, " " & Syntax_Trees.Get_Node_Index (Item.Del_Node)'Image);
 
       end case;
       Character'Write (Stream, ')');
@@ -1176,5 +1178,103 @@ package body WisiToken.Parse is
    is begin
       Put_Errors (Parser.Tree, Stream);
    end Put_Errors;
+
+   procedure Execute_Actions
+     (Tree                : in out Syntax_Trees.Tree;
+      Productions         : in     Syntax_Trees.Production_Info_Trees.Vector;
+      User_Data           : in     Syntax_Trees.User_Data_Access;
+      Action_Region_Bytes : in     WisiToken.Buffer_Region := WisiToken.Null_Buffer_Region)
+   is
+      use all type WisiToken.Syntax_Trees.Node_Access;
+      use all type Syntax_Trees.Post_Parse_Action;
+      use all type Syntax_Trees.User_Data_Access;
+
+      procedure Process_Node
+        (Tree : in out Syntax_Trees.Tree;
+         Node : in     Syntax_Trees.Valid_Node_Access)
+      is
+         use all type Syntax_Trees.Node_Label;
+         Node_Byte_Region : constant Buffer_Region := Tree.Byte_Region
+           (Node, Trailing_Non_Grammar => True);
+      begin
+         if Tree.Label (Node) /= Nonterm or else
+           not (Node_Byte_Region = Null_Buffer_Region or
+                  Action_Region_Bytes = Null_Buffer_Region or
+                  Overlaps (Node_Byte_Region, Action_Region_Bytes))
+         then
+            return;
+         end if;
+
+         for Child of Tree.Children (Node) loop
+            if Child /= Syntax_Trees.Invalid_Node_Access then
+               --  Child can be null in an edited tree
+               Process_Node (Tree, Child);
+            end if;
+         end loop;
+
+         User_Data.Reduce (Tree, Node);
+         declare
+            Post_Parse_Action : constant Syntax_Trees.Post_Parse_Action := Get_Post_Parse_Action
+              (Productions, Tree.Production_ID (Node));
+         begin
+            if Post_Parse_Action /= null then
+               begin
+                  Post_Parse_Action (User_Data.all, Tree, Node);
+               exception
+               when E : others =>
+                  if Trace_Tests > Outline then
+                     --  running a unit test; exception may be AUnit assert fail
+                     raise;
+
+                  elsif WisiToken.Debug_Mode then
+                     Tree.Lexer.Trace.Put_Line
+                       (Ada.Exceptions.Exception_Name (E) & ": " & Ada.Exceptions.Exception_Message (E));
+                     Tree.Lexer.Trace.Put_Line (GNAT.Traceback.Symbolic.Symbolic_Traceback (E));
+                     Tree.Lexer.Trace.New_Line;
+                  end if;
+
+                  raise WisiToken.Parse_Error with Tree.Error_Message
+                    (Node,
+                     "action raised exception " & Ada.Exceptions.Exception_Name (E) & ": " &
+                       Ada.Exceptions.Exception_Message (E));
+               end;
+            end if;
+         end;
+      end Process_Node;
+
+   begin
+      if User_Data = null then
+         return;
+      end if;
+
+      if Tree.Root = Syntax_Trees.Invalid_Node_Access then
+         --  No code in file, and error recovery failed to insert valid code.
+         --  Or ambiguous parse; Finish_Parse not called.
+         return;
+      end if;
+
+      User_Data.Initialize_Actions (Tree);
+
+      Process_Node (Tree, Tree.Root);
+   exception
+   when WisiToken.Parse_Error =>
+      raise;
+
+   when E : others =>
+      if Debug_Mode then
+         Tree.Lexer.Trace.Put_Line
+           (Ada.Exceptions.Exception_Name (E) & ": " & Ada.Exceptions.Exception_Message (E));
+         Tree.Lexer.Trace.Put_Line (GNAT.Traceback.Symbolic.Symbolic_Traceback (E));
+         Tree.Lexer.Trace.New_Line;
+      end if;
+      raise;
+   end Execute_Actions;
+
+   procedure Execute_Actions
+     (Parser              : in out WisiToken.Parse.Base_Parser'Class;
+      Action_Region_Bytes : in     WisiToken.Buffer_Region := WisiToken.Null_Buffer_Region)
+   is begin
+      Execute_Actions (Parser.Tree, Parser.Productions, Parser.User_Data, Action_Region_Bytes);
+   end Execute_Actions;
 
 end WisiToken.Parse;

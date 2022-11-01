@@ -19,11 +19,10 @@
 pragma License (GPL);
 
 with Wisi;
-with WisiToken;
-with Wisi.Parse_Context;
+with WisiToken.Parse;
 package Run_Wisi_Common_Parse is
 
-   procedure Parse_File (Language : in Wisi.Parse_Context.Language; Trace : in WisiToken.Trace_Access);
+   procedure Parse_File (Factory : in WisiToken.Parse.Factory; Trace : in WisiToken.Trace_Access);
    --  Reads command line, processes command(s).
 
 end Run_Wisi_Common_Parse;

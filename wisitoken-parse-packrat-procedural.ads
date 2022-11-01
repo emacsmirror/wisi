@@ -27,42 +27,12 @@ pragma License (Modified_GPL);
 with WisiToken.Productions;
 package WisiToken.Parse.Packrat.Procedural is
 
-   --  These types duplicate Packrat.Generated. We keep them separate so
-   --  we can experiment with ways of implementing indirect left
-   --  recursion.
-
-   type Memo_State is (No_Result, Failure, Success);
-   subtype Result_States is Memo_State range Failure .. Success;
-
-   type Memo_Entry (State : Memo_State := No_Result) is record
-      case State is
-      when No_Result =>
-         null;
-
-      when Failure =>
-         null;
-
-      when Success =>
-         Result   : Syntax_Trees.Node_Access;
-         Last_Pos : Syntax_Trees.Stream_Index;
-
-      end case;
-   end record;
-
-   subtype Positive_Node_Index is Syntax_Trees.Node_Index range 1 .. Syntax_Trees.Node_Index'Last;
-   package Memos is new SAL.Gen_Unbounded_Definite_Vectors
-     (Positive_Node_Index, Memo_Entry, Default_Element => (others => <>));
-   --  Memos is indexed by Node_Index of terminals in Shared_Stream
-   --  (incremental parse is not supported).
-
-   type Derivs is array (Token_ID range <>) of Memos.Vector;
-
-   type Parser (First_Nonterminal, Last_Nonterminal : Token_ID) is new Packrat.Parser
+   type Parser (First_Nonterminal, Last_Nonterminal : Token_ID) is new WisiToken.Parse.Packrat.Parser
+     (First_Nonterminal => First_Nonterminal,
+      Last_Nonterminal  => Last_Nonterminal)
    with record
-      Grammar               : WisiToken.Productions.Prod_Arrays.Vector;
-      Start_ID              : Token_ID;
-      Direct_Left_Recursive : Token_ID_Set (First_Nonterminal .. Last_Nonterminal);
-      Derivs                : Procedural.Derivs (First_Nonterminal .. Last_Nonterminal);
+      Grammar  : WisiToken.Productions.Prod_Arrays.Vector;
+      Start_ID : Token_ID;
    end record;
 
    function Create

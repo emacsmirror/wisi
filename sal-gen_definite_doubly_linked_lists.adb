@@ -261,10 +261,10 @@ package body SAL.Gen_Definite_Doubly_Linked_Lists is
       null;
    end Insert;
 
-   function Persistent_Ref (Position : in Cursor) return access Element_Type
+   function Unchecked_Ref (Position : in Cursor) return access Element_Type
    is begin
       return Position.Ptr.Element'Access;
-   end Persistent_Ref;
+   end Unchecked_Ref;
 
    function Constant_Reference (Container : in List; Position : in Cursor) return Constant_Reference_Type
    is

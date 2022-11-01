@@ -44,7 +44,11 @@ package SAL.Gen_Indefinite_Doubly_Linked_Lists is
    overriding procedure Finalize (Container : in out List);
    --  Free all items in List.
 
+   procedure Clear (Container : in out List) renames Finalize;
+
    function Length (Container : in List) return Base_Peek_Type;
+
+   procedure Delete_First (Container : in out List);
 
    procedure Append (Container : in out List; Element : in Element_Type);
 
@@ -104,7 +108,6 @@ private
    type Node_Type;
    type Node_Access is access Node_Type;
    type Element_Access is access Element_Type;
-
 
    type Node_Type is record
       Element : Element_Access;

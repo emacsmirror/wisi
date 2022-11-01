@@ -158,9 +158,8 @@ package WisiToken.BNF is
       Declare_Enums             : Boolean  := True;
       End_Names_Optional_Option : Ada.Strings.Unbounded.Unbounded_String;
       Error_Recover             : Boolean  := False; -- True if grammar specifies error recover parameters.
-      LR1_Hash_Table_Size       : Positive := 113; --  Should match sal-gen_unbounded_definite_hash_tables.ads
       Language_Runtime_Name     : Ada.Strings.Unbounded.Unbounded_String;
-      Partial_Recursion         : Boolean  := False;
+      Recursion_Strategy        : WisiToken.Recursion_Strategy := Full;
       Start_Token               : Ada.Strings.Unbounded.Unbounded_String;
       Use_Language_Runtime      : Boolean  := True;
    end record;

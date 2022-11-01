@@ -335,6 +335,19 @@ package body WisiToken.Parse.LR is
       end loop;
    end Set_McKenzie_Options;
 
+   procedure Set_McKenzie_Help
+   is
+      use Ada.Text_IO;
+   begin
+      --  param alphabetical order
+      Put_Line ("check_delta_limit|check_delta");
+      Put_Line ("check_limit");
+      Put_Line ("enqueue_limit");
+      Put_Line ("full_explore");
+      Put_Line ("high_cost");
+      Put_Line ("zombie_limit");
+   end Set_McKenzie_Help;
+
    function Goto_For
      (Table : in Parse_Table;
       State : in State_Index;

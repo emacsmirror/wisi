@@ -1,4 +1,4 @@
-;;; wisi-process-parse.el --- interface to external parse program
+;;; wisi-process-parse.el --- interface to external parse program  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2014, 2017 - 2022 Free Software Foundation, Inc.
 ;;
@@ -83,7 +83,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
       (let ((exec-file (locate-file (wisi-process--parser-exec-file parser) exec-path '("" ".exe"))))
 
 	(unless exec-file
-	  (error "%s not found on `exec-path'; run 'build.sh' in the ELPA package."
+	  (user-error "%s not found on `exec-path'."
 		 (wisi-process--parser-exec-file parser)))
 
 	(push (cons (wisi-process--parser-label parser) parser) wisi-process--alist)
@@ -192,7 +192,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 	(erase-buffer));; delete any previous messages, prompt
 
       (when (or (not nowait) (>= wisi-debug 2))
-	(message "starting parser ..."))
+	(message "starting parser %s ..." (wisi-process--parser-label parser)))
       (wisi-parse-log-message parser "create process")
 
       (setf (wisi-process--parser-version-checked parser) nil)
@@ -232,6 +232,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
     (with-current-buffer (wisi-process--parser-buffer parser)
       (setq search-start (point-min))
       (while (if filter-active
+		 ;; FIXME: if the filter is hung, this should reset it
 		 (not (eq #'internal-default-process-filter (process-filter process)));; wait for filter to finish
 
 	      (and (process-live-p process)
@@ -389,6 +390,8 @@ complete."
 		    )))
 	   (process (wisi-process--parser-process parser)))
 
+      (setf (wisi-process--parser-update-fringe parser) t)
+
       (with-current-buffer (wisi-process--parser-buffer parser)
 	(erase-buffer))
 
@@ -515,7 +518,7 @@ PARSER will respond with one or more Query messages."
 	)))
     ))
 
-(defun wisi-process-parse--Name_Property (parser sexp)
+(defun wisi-process-parse--Name_Property (_parser sexp)
   ;; sexp is [Name_Property first-pos last-pos]
   ;; see `wisi-process-parse--execute'
   ;; implements wisi-name-action
@@ -546,7 +549,7 @@ PARSER will respond with one or more Query messages."
 	       'fontified t)
 	 )))))
 
-(defun wisi-process-parse--Indent (parser sexp)
+(defun wisi-process-parse--Indent (_parser sexp)
   ;; sexp is [Indent line-number line-begin-char-pos indent]
   ;; see `wisi-process-parse--execute'
   (let ((pos (aref sexp 2)))
@@ -559,7 +562,7 @@ PARSER will respond with one or more Query messages."
 	 (aref sexp 3)))
       )))
 
-(defun wisi-process-parse--Lexer_Error (parser sexp)
+(defun wisi-process-parse--Lexer_Error (_parser sexp)
   ;; sexp is [Lexer_Error char-position <message> <repair-char>]
   ;; see `wisi-process-parse--execute'
   (let ((pos (min (point-max) (aref sexp 1)))
@@ -582,7 +585,7 @@ PARSER will respond with one or more Query messages."
     (push err (wisi-parser-local-lexer-errors wisi-parser-local))
     ))
 
-(defun wisi-process-parse--Parser_Error (parser sexp)
+(defun wisi-process-parse--Parser_Error (_parser sexp)
   ;; sexp is [Parser_Error char-position <string>]
   ;; see `wisi-process-parse--execute'
   (let ((pos (min (point-max) (aref sexp 1)))
@@ -611,7 +614,7 @@ PARSER will respond with one or more Query messages."
     (push err (wisi-parser-local-parse-errors wisi-parser-local))
     ))
 
-(defun wisi-process-parse--In_Parse_Action_Error (parser sexp)
+(defun wisi-process-parse--In_Parse_Action_Error (_parser sexp)
   ;; sexp is [In_Parse_Action_Error code name-1-pos name-2-pos <string>]
   ;; see `wisi-process-parse--execute'
   (let ((name-1-pos (aref sexp 2))
@@ -671,7 +674,9 @@ PARSER will respond with one or more Query messages."
 	      (wisi--parse-error-repair err)) ;; new
 	     err ;; old
 	     (wisi-parser-local-parse-errors wisi-parser-local) ;; tree
-	     :test (lambda (old el) (= (wisi--parse-error-pos old) (wisi--parse-error-pos err)))))
+	     :test (lambda (old _el)
+	             (= (wisi--parse-error-pos old)
+	                (wisi--parse-error-pos err)))))
 	   )))
     ))
 
@@ -680,7 +685,7 @@ PARSER will respond with one or more Query messages."
   ;; see `wisi-process-parse--execute'
   (setf (wisi-process--parser-end-pos parser) (1+ (aref sexp 1))))
 
-(defun wisi-process-parse--Edit (parser sexp)
+(defun wisi-process-parse--Edit (_parser sexp)
   ;; sexp is [Edit begin end text]
   (save-excursion
     (delete-region (aref sexp 1) (1+ (aref sexp 2)))
@@ -715,88 +720,91 @@ PARSER will respond with one or more Query messages."
 Source buffer is current."
   ;; sexp is [action arg ...]; an encoded instruction that we need to execute
   ;;
-  ;; Actions:
-  ;;
-  ;; [Navigate_Cache pos statement_id id length class containing_pos prev_pos next_pos end_pos]
-  ;;    Set a wisi-cache text-property.
-  ;;    *pos          : integer buffer position; -1 if nil (not set)
-  ;;    *id           : integer index into parser-token-table
-  ;;    length        : integer character count
-  ;;    class         : integer index into wisi-class-list
-  ;;
-  ;; [Name_Property first-pos last-pos]
-  ;;
-  ;; [Face_Property first-pos last-pos face-index]
-  ;;    Set a font-lock-face text-property
-  ;;    face-index: integer index into parser-elisp-face-table
-  ;;
-  ;; [Indent line-number indent]
-  ;;    Set an indent text property
-  ;;
-  ;; [Lexer_Error char-position <message> <repair-char>]
-  ;;    The lexer detected an error at char-position.
-  ;;
-  ;;    If <repair-char> is not ASCII NUL, it was inserted immediately
-  ;;    after char-position to fix the error.
-  ;;
-  ;; [Parser_Error char-position <message>]
-  ;;    The parser detected a syntax error; save information for later
-  ;;    reporting.
-  ;;
-  ;;    If error recovery is successful, there can be more than one
-  ;;    error reported during a parse.
-  ;;
-  ;; [In_Parse_Action_Error code name-1-pos name-2-pos <string>]
-  ;;    The parser detected an in-parse action error; save information
-  ;;    for later reporting. Either of the name-*-pos may be 0,
-  ;;    indicating a missing name.
-  ;;
-  ;;    If error recovery is successful, there can be more than one
-  ;;    error reported during a parse.
-  ;;
-  ;; [Recover [error-pos edit-pos [inserted] [deleted] deleted-region]...]
-  ;;    The parser finished a successful error recovery.
-  ;;
-  ;;    error-pos: Buffer position where error was detected
-  ;;
-  ;;    edit-pos: Buffer position of inserted/deleted tokens
-  ;;
-  ;;    inserted: Virtual tokens (terminal or non-terminal) inserted
-  ;;    before edit-pos.
-  ;;
-  ;;    deleted: Tokens deleted after edit-pos.
-  ;;
-  ;;    deleted-region: source buffer char region containing deleted tokens
-  ;;
-  ;;    Args are token ids; index into parser-token-table. Save the
-  ;;    information for later use by `wisi-repair-error'.
-  ;;
-  ;; [Edit begin end text]
-  ;;    Replace region BEGIN . END with TEXT; normally the result of a
-  ;;    refactor command.
-  ;;
-  ;; [Language ...]
-  ;;    Dispatch to a language-specific action, via
-  ;;    `wisi-process--parser-language-action-table'.
-  ;;
-  ;; [Query query-label ...]
-  ;;
-  ;; Numeric action codes are given in the case expression below
+  ;; Numeric action codes are given in the case expression below; must
+  ;; match list of *_Code in wisi.ads.
 
   (condition-case err
       (cl-ecase (aref sexp 0)
 	(1  (wisi-process-parse--Navigate_Cache parser sexp))
+	;; [Navigate_Cache pos statement_id id length class containing_pos prev_pos next_pos end_pos]
+	;;    Set a wisi-cache text-property.
+	;;    *pos          : integer buffer position; -1 if nil (not set)
+	;;    *id           : integer index into parser-token-table
+	;;    length        : integer character count
+	;;    class         : integer index into wisi-class-list
+
 	(2  (wisi-process-parse--Face_Property parser sexp))
+	;; [Face_Property first-pos last-pos face-index]
+	;;    Set a font-lock-face text-property
+	;;    face-index: integer index into parser-elisp-face-table
+
 	(3  (wisi-process-parse--Indent parser sexp))
+	;; [Indent line-number indent]
+	;;    Set an indent text property
+
 	(4  (wisi-process-parse--Lexer_Error parser sexp))
+	;; [Lexer_Error char-position <message> <repair-char>]
+	;;    The lexer detected an error at char-position.
+	;;
+	;;    If <repair-char> is not ASCII NUL, it was inserted immediately
+	;;    after char-position to fix the error.
+
 	(5  (wisi-process-parse--Parser_Error parser sexp))
+	;; [Parser_Error char-position <message>]
+	;;    The parser detected a syntax error; save information for later
+	;;    reporting.
+	;;
+	;;    If error recovery is successful, there can be more than one
+	;;    error reported during a parse.
+
 	(6  (wisi-process-parse--In_Parse_Action_Error parser sexp))
+	;; [In_Parse_Action_Error code name-1-pos name-2-pos <string>]
+	;;    The parser detected an in-parse action error; save information
+	;;    for later reporting. Either of the name-*-pos may be 0,
+	;;    indicating a missing name.
+	;;
+	;;    If error recovery is successful, there can be more than one
+	;;    error reported during a parse.
+
 	(7  (wisi-process-parse--Recover parser sexp))
+	;; [Recover [error-pos edit-pos [inserted] [deleted] deleted-region]...]
+	;;    The parser finished a successful error recovery.
+	;;
+	;;    error-pos: Buffer position where error was detected
+	;;
+	;;    edit-pos: Buffer position of inserted/deleted tokens
+	;;
+	;;    inserted: Virtual tokens (terminal or non-terminal) inserted
+	;;    before edit-pos.
+	;;
+	;;    deleted: Tokens deleted after edit-pos.
+	;;
+	;;    deleted-region: source buffer char region containing deleted tokens
+	;;
+	;;    Args are token ids; index into parser-token-table. Save the
+	;;    information for later use by `wisi-repair-error'.
+
 	(8  (wisi-process-parse--End parser sexp))
+	;; [End pos]
+	;;    Record last buffer position parsed.
+
 	(9  (wisi-process-parse--Name_Property parser sexp))
+	;; [Name_Property first-pos last-pos]
+
 	(10 (wisi-process-parse--Edit parser sexp))
+	;; [Edit begin end text]
+	;;    Replace region BEGIN . END with TEXT; normally the result of a
+	;;    refactor command.
+
 	(11 (wisi-process-parse--Language parser sexp))
+	;; [Language ...]
+	;;    Dispatch to a language-specific action, via
+	;;    `wisi-process--parser-language-action-table'.
+
 	(12 (wisi-process-parse--Query parser sexp))
+	;; [Query query-label ...]
+	;;    Query result.
+
 	)
     (error
      (when (< 0 wisi-debug)
@@ -822,8 +830,7 @@ Source buffer is current."
     ;; executable is not reading command input.
 
     ;; Don't let font-lock start a parse for face while waiting for
-    ;; the process to die. FIXME: that just means font-lock will
-    ;; restart the process immediately; tell font-lock not to do that?
+    ;; the process to die.
     (setf (wisi-process--parser-busy parser) t)
     (wisi-parse-log-message parser "kill process")
     (kill-process (wisi-process--parser-process parser)))
@@ -900,6 +907,7 @@ Source buffer is current."
   (let ((response-buffer (wisi-process--parser-buffer parser))
         (source-buffer (wisi-process--parser-source-buffer parser))
 	log-start)
+    (defvar w32-pipe-read-delay)
     (condition-case err
 	(let* ((process (wisi-process--parser-process parser))
 	       (w32-pipe-read-delay 0) ;; fastest subprocess read
@@ -1004,7 +1012,7 @@ Source buffer is current."
 		     (t
 		      ;; Something else
 		      (condition-case-unless-debug err
-			  (eval response)
+			  (eval response t)
 			(error
 			 (wisi-parse-log-message parser (cadr err))
 			 (with-current-buffer source-buffer
@@ -1018,7 +1026,7 @@ Source buffer is current."
 		   ((arrayp response)
 		    ;; encoded action
 		    (set-buffer source-buffer) ;; for put-text-property in actions
-		    (condition-case err
+		    (condition-case nil
 			(wisi-process-parse--execute parser response)
 
 		      (t ;; error from bug in action code above, or bad data from parser.
@@ -1108,33 +1116,19 @@ Source buffer is current."
        (signal (car err) (cdr err)))
       )))
 
-(cl-defun wisi-process-parse--handle-messages-file-not-found (parser action &key no-text)
+(cl-defun wisi-process-parse--handle-messages-file-not-found (parser action)
   (funcall action)
   (condition-case _err
       (wisi-process-parse--handle-messages parser)
     ('wisi-file_not_found
-     (cond
-      (no-text
-       (let ((cmd (format "create-context \"%s\"" (if (buffer-file-name) (buffer-file-name) (buffer-name))))
-	     (process (wisi-process--parser-process parser)))
-	 (with-current-buffer (wisi-process--parser-buffer parser)
-	   (erase-buffer))
-	 (wisi-parse-log-message parser cmd)
-	 (process-send-string process (wisi-process-parse--add-cmd-length cmd)))
-       (wisi-process-parse--wait parser)
-       (wisi-process-parse--handle-messages parser)
-       (funcall action)
-       (wisi-process-parse--handle-messages parser)
-       )
-      (t
-       (message "parsing buffer ...")
-       (wisi-process-parse--send-incremental-parse parser t)
-       (wisi-process-parse--wait parser)
-       (wisi-process-parse--handle-messages parser)
-       (message "parsing buffer ... done")
-       (funcall action)
-       (wisi-process-parse--handle-messages parser)
-       )))))
+     (message "parsing buffer ...")
+     (wisi-process-parse--send-incremental-parse parser t) ;; creates parse context
+     (wisi-process-parse--wait parser)
+     (wisi-process-parse--handle-messages parser)
+     (message "parsing buffer ... done")
+     (funcall action)
+     (wisi-process-parse--handle-messages parser)
+     )))
 
 (cl-defmethod wisi-parse-enable-memory-report ((parser wisi-parser))
   (wisi-process-parse--prepare parser 'debug)
@@ -1186,7 +1180,7 @@ Source buffer is current."
     ;; send buffer holds, w-p-p--send-* hangs waiting for the process
     ;; to start reading, which is after it loads the parse table,
     ;; which can take noticeable time for Ada.
-    (message "starting parser ..."))
+    (message "starting parser %s ..." (wisi-process--parser-label parser)))
   (wisi-process-parse--prepare parser parse-action :nowait nowait)
   (setf (wisi-parser-local-lexer-errors wisi-parser-local) nil)
   (setf (wisi-parser-local-parse-errors wisi-parser-local) nil)
@@ -1258,7 +1252,7 @@ Source buffer is current."
   (wisi-process-parse--handle-messages-file-not-found
    parser
    (lambda ()
-     (apply 'wisi-process-parse--send-query parser query args)))
+     (apply #'wisi-process-parse--send-query parser query args)))
   (wisi-process--parser-query-result parser))
 
 ;;;;; debugging
@@ -1277,12 +1271,25 @@ Source buffer is current."
     (process-send-string process (wisi-process-parse--add-cmd-length cmd))
     (wisi-process-parse--handle-messages parser)))
 
-(defun wisi-process-parse-dump-tree (save-file-root)
-  (interactive "Fsave-file-root: ")
+(cl-defmethod wisi-parse-save-text-tree-auto ((parser wisi-process--parser) enable)
+  (wisi-process-parse--prepare parser 'debug)
+  (let* ((cmd
+	  (format "save_prev_auto \"%s\" %d"
+		  (if (buffer-file-name) (buffer-file-name) (buffer-name))
+		  (if enable 1 0)))
+	 (process (wisi-process--parser-process parser)))
+    (with-current-buffer (wisi-process--parser-buffer parser)
+      (erase-buffer))
+
+    (wisi-parse-log-message parser cmd)
+    (process-send-string process (wisi-process-parse--add-cmd-length cmd))
+    (wisi-process-parse--handle-messages parser)))
+
+(defun wisi-process-parse-dump-tree (save-file-root prev)
+  (interactive "Fsave-file-root: \nP")
   (let ((parser wisi-parser-shared))
     (wisi-process-parse--prepare parser 'debug)
-    ;; Also save the source text, so we have a complete test case
-    ;; starting point.
+    ;; Also save the source text, so we have a complete test case.
     (let* ((cmd
 	    (format (concat "save_text" " \"%s\" \"%s\"")
 		    (if (buffer-file-name) (buffer-file-name) (buffer-name))
@@ -1295,7 +1302,20 @@ Source buffer is current."
       (process-send-string process (wisi-process-parse--add-cmd-length cmd))
       (wisi-process-parse--handle-messages parser))
 
-    (wisi-parse-tree-query parser 'dump (concat save-file-root ".tree_text"))))
+    (if prev
+	(let ((cmd
+	       (format (concat "dump_prev_tree" " \"%s\" \"%s\"")
+		       (if (buffer-file-name) (buffer-file-name) (buffer-name))
+		      (concat save-file-root ".tree_text")))
+	     (process (wisi-process--parser-process parser)))
+	  (with-current-buffer (wisi-process--parser-buffer parser)
+	    (erase-buffer))
+
+	  (wisi-parse-log-message parser cmd)
+	  (process-send-string process (wisi-process-parse--add-cmd-length cmd))
+	  (wisi-process-parse--handle-messages parser))
+
+	(wisi-parse-tree-query parser 'dump (concat save-file-root ".tree_text")))))
 
 (defun wisi-process-all-changes-to-cmd (&optional cmd-buffer-name)
   "Convert wisi-parser-local-all-changes in current buffer to command file
@@ -1312,7 +1332,7 @@ in CMD-BUFFER-NAME."
 	(mckenzie_zombie_limit wisi-mckenzie-zombie-limit)
 	(mckenzie_enqueue_limit wisi-mckenzie-enqueue-limit)
 	(language_options (wisi-parse-format-language-options wisi-parser-shared))
-	edit begin end)
+	begin end)
     (set-buffer cmd-buffer)
     (erase-buffer)
 
@@ -1399,7 +1419,6 @@ prompt for it."
        (let ((verbosity (match-string 2))
 	     (mckenzie_zombie_limit (match-string 3))
 	     (mckenzie_enqueue_limit (match-string 4))
-	     (parse_max_parallel (match-string 5))
 	     (language_param (match-string 6)))
 
 	 (set-buffer cmd-buffer)
@@ -1575,9 +1594,6 @@ command_file command in the kill ring."
    ((looking-at "parse 2 \"\\([^\"]*\\)\" \"\\([^\"]*\\)\" \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) [-0-9]+ [-0-9]+ \"\\([^\"]*\\)\"")
     (let ((source-file (match-string 1))
 	  (verbosity (match-string 2))
-	  (mckenzie_zombie_limit (match-string 3))
-	  (mckenzie_enqueue_limit (match-string 4))
-	  (parse_max_parallel (match-string 5))
 	  (language_param (match-string 6))
 	  cmd)
 
@@ -1589,16 +1605,23 @@ command_file command in the kill ring."
 		    ))
       (kill-new cmd)))
 
-   ((looking-at "post-parse \"\\([^\"]*\\)\" \"\\([^\"]*\\)\" \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) \"\\([^\"]*\\)\"")
+    ((looking-at "parse 1 \"\\([^\"]+\\)\"")
+     (let (begin cmd)
+       (search-forward-regexp "((")
+       (setq begin (match-beginning 0))
+       (search-forward-regexp "\")) ") ;; avoid matching 'is (Float (A));'
+       (setq cmd (concat "parse_incremental "
+			 (replace-regexp-in-string "\n" "\\n"
+					 (buffer-substring begin (match-end 0)))))
+       (kill-new cmd)))
+
+    ((looking-at "post-parse \"\\([^\"]*\\)\" \"\\([^\"]*\\)\" \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) \\([-0-9]+\\) \"\\([^\"]*\\)\"")
     ;; see wisi-process-parse--send-action above
-    (let* ((source-file (match-string 1))
-	   (verbosity (match-string 2))
-	   (action (string-to-number (match-string 3)))
+    (let* ((action (string-to-number (match-string 3)))
 	   (begin-bytes (match-string 4))
 	   (begin-chars (match-string 5))
 	   (end-bytes (match-string 6))
 	   (end-chars (match-string 7))
-	   (language-opts (match-string 8))
 	   (cmd
 	    (concat "post_parse "
 		    (cl-ecase action (0 "Navigate") (1 "Face") (2 "Indent") (3 "None")) " "

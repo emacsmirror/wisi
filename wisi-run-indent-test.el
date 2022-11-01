@@ -1,4 +1,4 @@
-;;; wisi-run-indent-test.el --- utils for automating indentation and casing tests
+;;; wisi-run-indent-test.el --- utils for automating indentation and casing tests  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2018 - 2022  Free Software Foundation, Inc.
 ;;
@@ -36,6 +36,9 @@ text, after each edit in an incremental parse, and before each partial parse.")
 (defun test-in-comment-p ()
   (nth 4 (syntax-ppss)))
 
+(defvar test-face-wait-fn nil
+  "Function to call after `font-lock-ensure' to wait for face to actually be set.")
+
 (defun test-face (token face)
   "Test if all of TOKEN in next code line has FACE.
 FACE may be a list."
@@ -43,52 +46,58 @@ FACE may be a list."
     (when (test-in-comment-p)
       (beginning-of-line); forward-comment doesn't move if inside a comment!
       (forward-comment (point-max)))
-    (condition-case err
+    (condition-case nil
 	(search-forward token (line-end-position 5))
       (error
        (error "can't find '%s'" token)))
 
-    (save-match-data
-      (wisi-validate-cache (line-beginning-position) (line-end-position) nil 'face)
-      (font-lock-ensure (line-beginning-position) (line-end-position)))
+    (when (not skip-recase-test) ;; should be t when wisi-disable-face is t
+      (let ((token (match-string 0))
+	    (test-pos (match-beginning 0)))
 
-    ;; We don't use face-at-point, because it doesn't respect
-    ;; font-lock-face set by the parser! And we want to check for
-    ;; conflicts between font-lock-keywords and the parser.
+	(when wisi-parser-shared
+	  (wisi-validate-cache (line-beginning-position) (line-end-position) nil 'face))
 
-    ;; font-lock-keywords sets 'face property, parser sets 'font-lock-face.
+	(font-lock-ensure (line-beginning-position) (line-end-position))
 
-    ;; In emacs < 27, if we use (get-text-property (point) 'face), we
-    ;; also get 'font-lock-face, but not vice-versa. So we have to use
-    ;; text-properties-at to check for both.
-    (let* ((token (match-string 0))
-	   (props (text-properties-at (match-beginning 0)))
-	   key
-	   token-face)
+	(when test-face-wait-fn
+	  (funcall test-face-wait-fn))
 
-      (cond
-       ((plist-get props 'font-lock-face)
-	(setq key 'font-lock-face)
-	(setq token-face (plist-get props 'font-lock-face)))
+	;; We don't use face-at-point, because it doesn't respect
+	;; font-lock-face set by the parser! And we want to check for
+	;; conflicts between font-lock-keywords and the parser.
 
-       ((plist-get props 'face)
-	(setq key 'face)
-	(setq token-face (plist-get props 'face)))
-       )
+	;; font-lock-keywords sets 'face property, parser sets 'font-lock-face.
 
-      (when (and (memq 'font-lock-face props)
-		 (memq 'face props))
-	(describe-text-properties (match-beginning 0))
-	(error "mixed font-lock-keyword and parser faces for '%s'" token))
+	;; In emacs < 27, if we use (get-text-property (point) 'face), we
+	;; also get 'font-lock-face, but not vice-versa. So we have to use
+	;; text-properties-at to check for both.
+	(let ((props (text-properties-at test-pos))
+	      key
+	      token-face)
+	  (cond
+	   ((plist-get props 'font-lock-face)
+	    (setq key 'font-lock-face)
+	    (setq token-face (plist-get props 'font-lock-face)))
 
-      (unless (not (text-property-not-all 0 (length token) key token-face token))
-	(error "mixed faces, expecting %s for '%s'" face token))
+	   ((plist-get props 'face)
+	    (setq key 'face)
+	    (setq token-face (plist-get props 'face)))
+	   )
 
-      (unless (or (and (listp face)
-		       (memq token-face face))
-		  (eq token-face face))
-	(error "found face %s, expecting %s for '%s'" token-face face token))
-    )))
+	  (when (and (memq 'font-lock-face props)
+		     (memq 'face props))
+	    (describe-text-properties test-pos)
+	    (error "mixed font-lock-keyword and parser faces for '%s'" token))
+
+	  (when (text-property-not-all test-pos (+ test-pos (length token)) key token-face)
+       	    (error "mixed faces, expecting %s for '%s'" face token))
+
+	  (unless (or (and (listp face)
+			   (memq token-face face))
+		      (eq token-face face))
+	    (error "found face %s, expecting %s for '%s'" token-face face token))
+	  )))))
 
 (defun test-face-1 (search token face)
   "Move to end of comment, search for SEARCH, call `test-face'."
@@ -126,7 +135,7 @@ is not present."
     (wisi-validate-cache (line-beginning-position 0) (line-end-position 3) nil 'navigate)
     (beginning-of-line); forward-comment doesn't move if inside a comment!
     (forward-comment (point-max))
-    (condition-case err
+    (condition-case nil
 	(search-forward token (line-end-position 5))
       (error
        (error "can't find '%s'" token)))
@@ -213,7 +222,9 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 
 	;; Test files use wisi-prj-select-cached to parse and select a project file.
 	(setq project-find-functions (list #'wisi-prj-current-cached))
-	(setq xref-backend-functions (list #'wisi-prj-xref-backend))
+
+	(unless (memq 'eglot-xref-backend xref-backend-functions)
+	  (setq xref-backend-functions (list #'wisi-prj-xref-backend)))
 
 	(when (stringp save-edited-text)
 	  (wisi-process-parse-save-text wisi-parser-shared save-edited-text t))
@@ -254,25 +265,25 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 	      (setq cmd-line (line-number-at-pos)
 		    last-cmd (match-string 0))
 	      (let ((msg (format "%s:%d: test %s" (buffer-file-name) cmd-line last-cmd)))
-		(wisi-parse-log-message wisi-parser-shared msg)
+		(when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 		(message "%s" msg)
 		(save-excursion
 		  (setq last-result
 			(condition-case-unless-debug err
 			    (prog1
-			      (eval (car (read-from-string last-cmd)))
+			      (eval (car (read-from-string last-cmd)) t)
 			      (when (> wisi-debug 1)
 			        (setq msg (concat msg " ... done"))
-                                (wisi-parse-log-message wisi-parser-shared msg)
+                                (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
                                 (message msg)))
 			  ((error wisi-parse-error)
 			   (setq error-count (1+ error-count))
 			   (setq msg (concat msg " ... signaled"))
 			   (setq force-fail t)
-			   (wisi-parse-log-message wisi-parser-shared msg)
+			   (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 			   (message msg)
 			   (setq msg (format "... %s: %s" (car err) (cdr err)))
-			   (wisi-parse-log-message wisi-parser-shared msg)
+			   (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 			   (message msg)
 			   nil)))
 		  ))
@@ -284,12 +295,15 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 
 	     ((string= (match-string 1) "RESULT")
 	      (looking-at ".*$")
-	      (setq expected-result (save-excursion (end-of-line 1) (eval (car (read-from-string (match-string 0))))))
+	      (setq expected-result
+	            (save-excursion
+	              (end-of-line 1)
+	              (eval (car (read-from-string (match-string 0))) t)))
 	      (if (and (not force-fail)
 		       (equal expected-result last-result))
 		  (let ((msg (format "test passes %s:%d:\n" (buffer-file-name) (line-number-at-pos))))
 		    (setq pass-count (1+ pass-count))
-		    (wisi-parse-log-message wisi-parser-shared msg)
+		    (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 		    (message msg))
 
 		(setq error-count (1+ error-count))
@@ -302,19 +316,23 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 				      last-cmd
 				      last-result
 				      expected-result)))))
-		  (wisi-parse-log-message wisi-parser-shared msg)
+		  (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 		  (message "%s" msg))
 		(setq force-fail nil)))
 
 	     ((string= (match-string 1) "RESULT_START")
 	      (looking-at ".*$")
-	      (setq expected-result
-		    (list (save-excursion (end-of-line 1) (eval (car (read-from-string (match-string 0))))))))
+	      (let ((val (save-excursion
+		          (end-of-line 1)
+		          (eval (car (read-from-string (match-string 0))) t))))
+		(when val
+		  (setq expected-result (list val)))))
 
 	     ((string= (match-string 1) "RESULT_ADD")
 	      (looking-at ".*$")
-	      (let ((val (save-excursion (end-of-line 1)
-					 (eval (car (read-from-string (match-string 0)))))))
+	      (let ((val (save-excursion
+			   (end-of-line 1)
+			   (eval (car (read-from-string (match-string 0))) t))))
 		(when val
 		  (setq expected-result (append expected-result (list val))))))
 
@@ -348,7 +366,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 
 	     ((string= (match-string 1) "_SKIP_UNLESS")
 	      (looking-at ".*$")
-	      (unless (eval (car (read-from-string (match-string 0))))
+	      (unless (eval (car (read-from-string (match-string 0))) t)
 		(setq skip-cmds t)
 		(setq skip-reindent-test t)
 		(setq skip-recase-test t)
@@ -361,7 +379,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 		       (current-buffer)
 		       (line-number-at-pos)
 		       (save-excursion
-			 (eval (car (read-from-string (match-string 0)))))))
+			 (eval (car (read-from-string (match-string 0))) t))))
 
 	     (t
 	      (setq error-count (1+ error-count))
@@ -369,7 +387,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 
 	  (let ((msg (format "%s:%d tests passed %d"
 			     (buffer-file-name) (line-number-at-pos (point)) pass-count)))
-	    (wisi-parse-log-message wisi-parser-shared msg)
+	    (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 	    (message msg))
 
 	  (when (> error-count 0)
@@ -406,27 +424,50 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
      (signal (car err) (cdr err)))
     ))
 
-(defvar cl-print-readably); cl-print.el, used by edebug
+;; Let edebug display strings full-length, and show internals of records
+(defvar cl-print-readably t); cl-print.el, used by edebug
+(setq read-buffer-completion-ignore-case t) ;; for "*Messages*"
 
-(defun large-frame ()
+(defun wisi-half-screen ()
   (interactive)
   (modify-frame-parameters
-      nil
+   nil
+   (cl-case system-type
+     (gnu/linux
       (list
+       (cons 'font "DejaVu Sans Mono-8")
        (cons 'width 120) ;; characters; fringe extra
-       (cons 'height 71) ;; characters
-       (cons 'left 0) ;; pixels
-       (cons 'top 0))))
-(define-key global-map "\C-cp" 'large-frame)
+       (cons 'height 94) ;; characters
+       (cons 'left 0)
+       (cons 'top 0)))
+     (windows-nt
+      (list
+       (cons 'font "DejaVu Sans Mono-8")
+       (cons 'width 120) ;; characters; fringe extra
+       (cons 'height 103) ;; characters
+       (cons 'left 0)
+       (cons 'top 0))))))
+(define-key global-map "\C-cp" 'wisi-half-screen)
+
+(defun wisi-first-error ()
+  (interactive)
+  (pop-to-buffer "*Messages*")
+  (goto-char (point-min))
+  (search-forward "error:"))
+(define-key global-map [f6] 'wisi-first-error)
+
+(defun wisi-prev-window ()
+  "move to previous window"
+  (interactive)
+  (other-window -1))
+(define-key global-map [M-C-up] 'wisi-prev-window)
+(define-key global-map [M-C-down] 'other-window)
 
 (defun run-test (file-name)
   "Run an indentation and casing test on FILE-NAME."
   (interactive "f")
 
   (setq-default indent-tabs-mode nil) ;; no tab chars in files
-
-  ;; Let edebug display strings full-length, and show internals of records
-  (setq cl-print-readably t)
 
   ;; we'd like to run emacs from a makefile as:
   ;;

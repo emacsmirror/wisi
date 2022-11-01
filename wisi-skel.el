@@ -1,6 +1,6 @@
 ;;; wisi-skel.el --- Extensions skeleton  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1987, 1993, 1994, 1996-2021  Free Software Foundation, Inc.
+;; Copyright (C) 1987, 1993, 1994, 1996-2022  Free Software Foundation, Inc.
 
 ;; Authors: Stephen Leake <stephen_leake@stephe-leake.org>
 
@@ -26,6 +26,8 @@
 ;; name).
 
 (require 'skeleton)
+(require 'wisi)     ;For `wisi-inhibit-parse'.
+(require 'wisi-prj) ;For `wisi-auto-case' and `wisi-case-adjust-region'.
 
 (defvar-local wisi-skel-token-alist nil
   "Alist of (STRING . ELEMENT), used by `wisi-skel-expand'.
@@ -65,9 +67,9 @@ after AFTER-1. If AFTER-1 is a nested alist, add the new entry after AFTER-2."
 The prompt consists of the first COUNT keys from the alist,
 separated by `|', with trailing `...' if there are more keys."
   (if (>= count (length alist))
-      (concat (mapconcat 'car alist " | ") " : ")
+      (concat (mapconcat #'car alist " | ") " : ")
     (let ((alist-1 (butlast alist (- (length alist) count))))
-      (concat (mapconcat 'car alist-1 " | ") " | ... : "))
+      (concat (mapconcat #'car alist-1 " | ") " | ... : "))
   ))
 
 (defvar wisi-skel-test-input nil
