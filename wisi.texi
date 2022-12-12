@@ -231,7 +231,7 @@ some other purpose. It is good style to indicate the purpose in a
 comment.
 
 For example, ada-mode uses a 'misc' property on left parentheses that
-start a subprogram parameter list; this distinquishes them from other
+start a subprogram parameter list; this distinguishes them from other
 left parentheses, and makes it possible to automatically call
 @code{ada-format-paramlist} to format the
 parameter list, instead of using the standard Emacs @code{align}.
@@ -338,7 +338,7 @@ Indent for comments are computed in the same way, except that the
 delta that applies to a comment that follows a token is given by the
 indent action entry for the next token. If a token is the last in a
 production, the comment indent is @code{nil}. These rules often give
-the wrong indent for a comment, so they can be overridden by specifing
+the wrong indent for a comment, so they can be overridden by specifying
 a comment indent for a token using @code{[CODE-INDENT
 COMMENT-INDENT]}; see below. Indent functions can also modify how
 comments are indented.
@@ -517,7 +517,7 @@ expression_list : expression | expression_list ',' expression
 
 statements : statement | statements statement
 
-statement : function_call ';' | assigment | if_statment
+statement : function_call ';' | assignment | if_statment
 
 assign_value : ':=' expression
 

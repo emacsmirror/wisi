@@ -55,7 +55,7 @@
   ;;
   ;; New exceptions may be added interactively via
   ;; `wisi-case-create-exception'.  If an exception is defined in
-  ;; multiple files, the first occurence is used.
+  ;; multiple files, the first occurrence is used.
   ;;
   ;; The file format is one word per line, which gives the casing to be
   ;; used for that word in source code.  If the line starts with
@@ -534,7 +534,7 @@ With prefix, keep previous references in output buffer."
     ))
 
 (defun wisi-show-local-references (&optional append)
-  "Show all references of identifier at point occuring in current file.
+  "Show all references of identifier at point occurring in current file.
 With prefix, keep previous references in output buffer."
   (interactive "P")
   (let* ((project (wisi-check-current-project (buffer-file-name)))
@@ -998,7 +998,7 @@ Return (cons full-exceptions partial-exceptions)."
     ))
 
 (defun wisi--case-merge-exceptions (result new)
-  "Merge NEW exeptions into RESULT.
+  "Merge NEW exceptions into RESULT.
 An item in both lists has the RESULT value."
   (dolist (item new)
     (unless (assoc-string (car item) result t)

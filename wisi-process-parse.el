@@ -258,7 +258,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 (defun wisi-process-parse--add-cmd-length (cmd)
   "Return CMD (a string) with length prefixed."
   ;; Characters in cmd length must match emacs_wisi_common_parse.adb
-  ;; Get_Command_Length. If the actual length overflows the alloted
+  ;; Get_Command_Length. If the actual length overflows the allotted
   ;; space, we will get a protocol_error from the parser
   ;; eventually. Caller should prevent that and send an alternate
   ;; command.

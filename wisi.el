@@ -956,7 +956,7 @@ Run the parser first if needed."
 (defun wisi-validate-cache (begin end error-on-fail parse-action)
   "Ensure cached data for PARSE-ACTION is valid in region BEGIN END"
 
-  ;; Tolerate (point) +- size exeeding buffer limits.
+  ;; Tolerate (point) +- size exceeding buffer limits.
   (setq begin (max begin (point-min)))
   (setq end (min end (point-max)))
 
