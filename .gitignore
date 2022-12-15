@@ -5,3 +5,4 @@ obj/
 wisi.gpr
 wisitoken-user_guide.info
 wisitoken-bnf-generate.exe
+autoloads.el
