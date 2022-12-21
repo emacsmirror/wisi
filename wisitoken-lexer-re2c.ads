@@ -4,7 +4,7 @@
 --
 --  References:
 --
---  [1] http://re2c.org/
+--  [1] https://re2c.org/
 --
 --  Copyright (C) 2017 - 2022 Free Software Foundation, Inc.
 --

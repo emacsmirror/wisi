@@ -54,7 +54,7 @@ Wisi Version 4.1.1
 
 The wisi package provides an elisp interface to an external parser. It
 assumes the parser generator package WisiToken
-(@url{http://stephe-leake.org/ada/wisitoken.html}, implemented in
+(@url{https://stephe-leake.org/ada/wisitoken.html}, implemented in
 Ada), but can use any parser that meets the same API. wisi provides
 several grammar actions, to implement indentation, navigating, and
 syntax highlighting (fontification).

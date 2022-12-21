@@ -73,7 +73,7 @@ available in the GNU ELPA package @code{wisi}.
 You will also need to install a lexer generator. WisiToken supports
 re2c, and other lexers can be added.
 
-re2c is available from @url{http://re2c.org/}; it is also packaged in
+re2c is available from @url{https://re2c.org/}; it is also packaged in
 Mingw64 and Debian. WisiToken requires at least version 1.3.
 The WisiToken makefile assumes the executable @code{re2c} is in
 @code{$PATH}.
