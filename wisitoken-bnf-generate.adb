@@ -3,7 +3,7 @@
 --  Parser for Wisi grammar files, producing Ada source
 --  files for a parser.
 --
---  Copyright (C) 2012 - 2015, 2017 - 2022 Free Software Foundation, Inc.
+--  Copyright (C) 2012 - 2015, 2017 - 2023 Free Software Foundation, Inc.
 --
 --  The WisiToken package is free software; you can redistribute it
 --  and/or modify it under terms of the GNU General Public License as
@@ -29,7 +29,6 @@ with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 with Ada.Text_IO;
 with GNAT.Traceback.Symbolic;
-with System.Multiprocessors;
 with WisiToken.BNF.Generate_Utils;
 with WisiToken.BNF.Output_Ada;
 with WisiToken.BNF.Output_Ada_Common;
@@ -55,7 +54,7 @@ is
       use Ada.Text_IO;
       First : Boolean := True;
    begin
-      Put_Line (Standard_Error, "version 4.0"); -- matches release version in Docs/wisitoken.html
+      Put_Line (Standard_Error, "version 4.1"); -- matches release version in Docs/wisitoken.html
       Put_Line (Standard_Error, "wisitoken-bnf-generate [options] {wisi grammar file}");
       Put_Line (Standard_Error, "Generate source code implementing a parser for the grammar.");
       New_Line (Standard_Error);
@@ -121,9 +120,6 @@ is
       Put_Line (Standard_Error, "  --ignore_conflicts; ignore excess/unknown conflicts");
       Put_Line (Standard_Error,
                 "  --test_main; generate standalone main program for running the generated parser, modify file names");
-      Put_Line (Standard_Error,
-                "  --task_count n; number of tasks used to compute LR1 items; 0 means CPU count." &
-                  " Default 1.");
       Put_Line (Standard_Error, "verbosity keys:");
       Enable_Trace_Help;
    end Put_Usage;
@@ -134,8 +130,6 @@ is
    Output_BNF              : Boolean                          := False;
    Ignore_Conflicts        : Boolean                          := False;
    Test_Main               : Boolean                          := False;
-   Generate_Task_Count     : System.Multiprocessors.CPU_Range := 1;
-   Generate_Task_Count_Set : Boolean                          := False;
 
    Command_Generate_Set : Generate_Set_Access; -- override grammar file declarations
 
@@ -249,19 +243,6 @@ begin
             Arg_Next := Arg_Next + 1;
             Suffix   := +Argument (Arg_Next);
             Arg_Next := Arg_Next + 1;
-
-         elsif Argument (Arg_Next) = "--task_count" then
-            Arg_Next   := @ + 1;
-            Generate_Task_Count_Set := True;
-            declare
-               use System.Multiprocessors;
-            begin
-               Generate_Task_Count := CPU_Range'Value (Argument (Arg_Next));
-               if Generate_Task_Count = 0 then
-                  Generate_Task_Count := Number_Of_CPUs;
-               end if;
-            end;
-            Arg_Next   := @ + 1;
 
          elsif Argument (Arg_Next) = "--test_main" then
             Arg_Next  := Arg_Next + 1;
@@ -522,10 +503,6 @@ begin
                Parser => Tuple.Gen_Alg,
                Phase  => WisiToken_Grammar_Runtime.Other);
 
-            if not Generate_Task_Count_Set then
-               Generate_Task_Count := System.Multiprocessors.Number_Of_CPUs;
-            end if;
-
             declare
                use all type WisiToken.Parse.LR.Parse_Table_Ptr;
                use Ada.Real_Time;
@@ -548,9 +525,6 @@ begin
                Parse_Table_File_Name : constant String :=
                  (if Tuple.Gen_Alg in LALR .. Packrat_Proc
                   then -Output_File_Name_Root & "_" & To_Lower (Tuple.Gen_Alg'Image) &
-                    (if Tuple.Gen_Alg = LR1 and Test_Main
-                     then "_t" & Ada.Strings.Fixed.Trim (Generate_Task_Count'Image, Ada.Strings.Both)
-                     else "") &
                     (if Input_Data.If_Lexer_Present
                      then "_" & Lexer_Image (Input_Data.User_Lexer).all
                      else "") &
@@ -651,7 +625,6 @@ begin
                         Include_Extra         => Test_Main,
                         Ignore_Conflicts      => Ignore_Conflicts,
                         Recursion_Strategy    => Input_Data.Language_Params.Recursion_Strategy,
-                        Task_Count            => Generate_Task_Count,
                         Use_Cached_Recursions => not (Input_Data.If_Lexer_Present or Input_Data.If_Parser_Present),
                         Recursions            => Cached_Recursions);
 
@@ -713,8 +686,7 @@ begin
                   if Tuple.Text_Rep then
                      WisiToken.Generate.LR.Put_Text_Rep
                        (Generate_Data.LR_Parse_Table.all,
-                        Text_Rep_File_Name
-                          (-Output_File_Name_Root, Tuple, Generate_Task_Count, Input_Data.If_Lexer_Present, Test_Main));
+                        Text_Rep_File_Name (-Output_File_Name_Root, Tuple, Input_Data.If_Lexer_Present));
                   end if;
 
                when others =>
@@ -729,7 +701,7 @@ begin
 
                   WisiToken.BNF.Output_Ada
                     (Input_Data, Grammar_Parser.Tree.Lexer.File_Name, -Output_File_Name_Root, Generate_Data,
-                     Packrat_Data, Tuple, Test_Main, Multiple_Tuples, Generate_Task_Count);
+                     Packrat_Data, Tuple, Test_Main, Multiple_Tuples);
 
                when Ada_Emacs_Lang =>
                   if Trace_Generate > Outline then

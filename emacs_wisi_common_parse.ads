@@ -24,7 +24,7 @@ with WisiToken.Parse;
 with Wisi.Parse_Context;
 package Emacs_Wisi_Common_Parse is
 
-   Protocol_Version : constant String := "6";
+   Protocol_Version : constant String := "7";
    --  Protocol_Version defines the data sent between elisp and the
    --  background process, except for the language-specific parameters,
    --  which are defined by the Language_Protocol_Version parameter to
@@ -67,6 +67,7 @@ package Emacs_Wisi_Common_Parse is
       Language_Protocol_Version : in String;
       Params                    : in Process_Start_Params;
       Factory                   : in WisiToken.Parse.Factory;
+      Free_Parser               : in WisiToken.Parse.Free_Parser;
       Trace                     : in WisiToken.Trace_Access);
 
    ----------

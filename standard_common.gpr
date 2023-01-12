@@ -170,4 +170,11 @@ project Standard_Common is
    end Linker;
 
    --  In project files, no linker package is needed.
+
+   package Pretty_Printer is
+      --  Used by ada_language_server and gnatpp. Projects will need
+      --  to add "--dictionary=<case exceptions file>".
+      for Default_Switches ("Ada") use ("--source-line-breaks");
+   end Pretty_Printer;
+
 end Standard_Common;

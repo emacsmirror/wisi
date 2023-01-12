@@ -404,6 +404,7 @@ package body Run_Wisi_Common_Parse is
    procedure Process_Command
      (Parse_Context : in out Wisi.Parse_Context.Parse_Context_Access;
       Factory       : in     WisiToken.Parse.Factory;
+      Free_Parser   : in     WisiToken.Parse.Free_Parser;
       Line          : in     String;
       Trace         : in     WisiToken.Trace_Access)
    is
@@ -466,7 +467,7 @@ package body Run_Wisi_Common_Parse is
             if Source_File_Name = -Parse_Context.File_Name then
                Parse_Context := null;
             end if;
-            Wisi.Parse_Context.Kill (Source_File_Name);
+            Wisi.Parse_Context.Kill (Source_File_Name, Free_Parser);
          end;
 
       when Language_Params =>
@@ -684,7 +685,10 @@ package body Run_Wisi_Common_Parse is
       end case;
    end Process_Command;
 
-   procedure Parse_File (Factory : in WisiToken.Parse.Factory; Trace : in WisiToken.Trace_Access)
+   procedure Parse_File
+     (Factory     : in WisiToken.Parse.Factory;
+      Free_Parser : in WisiToken.Parse.Free_Parser;
+      Trace       : in WisiToken.Trace_Access)
    is
       use Ada.Text_IO;
       use WisiToken;
@@ -953,7 +957,7 @@ package body Run_Wisi_Common_Parse is
                         if Line (1 .. 2) = "--" then
                            null;
                         else
-                           Process_Command (Parse_Context, Factory, Line, Trace);
+                           Process_Command (Parse_Context, Factory, Free_Parser, Line, Trace);
                            Trace.New_Line;
                         end if;
                      end if;

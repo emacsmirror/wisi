@@ -78,7 +78,8 @@ separated by `|', with trailing `...' if there are more keys."
   )
 
 (defun wisi-skel-enable-parse ()
-  (setq wisi-inhibit-parse nil));
+  (setq wisi-inhibit-parse nil)
+  (remove-hook 'skeleton-end-hook #'wisi-skel-enable-parse t));
 
 (defun wisi-skel-expand (&optional name)
   "Expand the token or placeholder before point to a skeleton.
@@ -105,6 +106,8 @@ before that as the token."
 		       (downcase (buffer-substring-no-properties (point) end))))
 	 (skel (assoc-string token wisi-skel-token-alist))
 	 (handled nil))
+
+    (add-hook 'skeleton-end-hook #'wisi-skel-enable-parse 90 t)
 
     (if skel
 	(progn
@@ -192,9 +195,6 @@ before that as the token."
   "Move point to after previous placeholder."
   (interactive)
   (skip-syntax-backward "^!"))
-
-;;;###autoload
-(add-hook 'skeleton-end-hook #'wisi-skel-enable-parse 90)
 
 (provide 'wisi-skel)
 ;;; wisi-skel.el ends here

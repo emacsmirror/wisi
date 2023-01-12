@@ -23,7 +23,6 @@ pragma License (Modified_GPL);
 with Ada.Strings.Fixed;
 with Ada.Text_IO; use Ada.Text_IO;
 with GNAT.Regexp;
-with System.Multiprocessors;
 with WisiToken.BNF.Generate_Packrat;
 with WisiToken.BNF.Generate_Utils;
 with WisiToken.BNF.Output_Ada_Common; use WisiToken.BNF.Output_Ada_Common;
@@ -37,18 +36,14 @@ procedure WisiToken.BNF.Output_Ada
    Packrat_Data          :         in WisiToken.Generate.Packrat.Data;
    Tuple                 :         in Generate_Tuple;
    Test_Main             :         in Boolean;
-   Multiple_Tuples       :         in Boolean;
-   Generate_Task_Count   :         in System.Multiprocessors.CPU_Range)
+   Multiple_Tuples       :         in Boolean)
 is
    Common_Data : Output_Ada_Common.Common_Data := WisiToken.BNF.Output_Ada_Common.Initialize
      (Input_Data, Tuple, Grammar_File_Name, Output_File_Name_Root, Check_Interface => False);
 
    Gen_Alg_Name : constant String :=
      (if Test_Main or Multiple_Tuples
-      then "_" & Generate_Algorithm_Image (Common_Data.Generate_Algorithm).all &
-         (if Common_Data.Generate_Algorithm = LR1
-         then "_t" & Ada.Strings.Fixed.Trim (Generate_Task_Count'Image, Ada.Strings.Both)
-         else "")
+      then "_" & Generate_Algorithm_Image (Common_Data.Generate_Algorithm).all
       else "");
 
    function Symbol_Regexp (Item : in String) return String
@@ -436,8 +431,7 @@ is
          if Common_Data.Text_Rep then
             Put_Line
               ("   """ &
-                 Text_Rep_File_Name
-                   (Output_File_Name_Root, Tuple, Generate_Task_Count, Input_Data.If_Lexer_Present, Test_Main) & """,");
+                 Text_Rep_File_Name (Output_File_Name_Root, Tuple, Input_Data.If_Lexer_Present) & """,");
          end if;
          if Input_Data.Language_Params.Error_Recover then
             if Input_Data.Language_Params.Use_Language_Runtime then

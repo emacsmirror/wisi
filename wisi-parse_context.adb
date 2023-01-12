@@ -161,7 +161,7 @@ package body Wisi.Parse_Context is
       end;
    end Find;
 
-   procedure Kill (File_Name : in String)
+   procedure Kill (File_Name : in String; Free_Parser : in WisiToken.Parse.Free_Parser)
    is begin
       if File_Name'Length = 0 then
          raise Wisi.Protocol_Error with "no file name given";
@@ -181,6 +181,7 @@ package body Wisi.Parse_Context is
             begin
                Map.Delete (File_Name);
                Ada.Strings.Unbounded.Free (Context.Text_Buffer);
+               Free_Parser (Context.Parser);
                Free (Context);
             end;
          end if;

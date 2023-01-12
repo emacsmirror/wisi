@@ -23,6 +23,7 @@
 
 pragma License (Modified_GPL);
 
+with Ada.Unchecked_Deallocation;
 with WisiToken.Parse.LR.Parser_Lists;
 with WisiToken.Lexer;
 with WisiToken.Syntax_Trees;
@@ -94,12 +95,10 @@ package WisiToken.Parse.LR.Parser is
       Parsers : aliased Parser_Lists.List;
    end record;
 
-   type Parser_Access is access Parser;
+   type Parser_Access is access all Parser;
 
-   --  It is tempting to declare Finalize here, to free Parser.Table. But
-   --  Wisi.Parse_Context reuses the table between parser instances, so
-   --  we can't do that. Other applications must explicitly free
-   --  Parser.Table if they care.
+   overriding procedure Finalize (Object : in out Parser);
+   --  Free Table.
 
    procedure New_Parser
      (Parser                         :    out LR.Parser.Parser;
@@ -126,5 +125,8 @@ package WisiToken.Parse.LR.Parser is
       Recover_Log_File : in     Ada.Text_IO.File_Type;
       Edits            : in     KMN_Lists.List := KMN_Lists.Empty_List;
       Pre_Edited       : in     Boolean        := False);
+
+   procedure Free is new Ada.Unchecked_Deallocation (Parser, Parser_Access);
+   --  Declared last to avoid freezing rules.
 
 end WisiToken.Parse.LR.Parser;

@@ -507,6 +507,7 @@ package WisiToken.Parse is
 
    type Base_Parser_Access is access all Base_Parser'Class;
    type Factory is access function return Base_Parser_Access;
+   type Free_Parser is access procedure (Object : in out Base_Parser_Access);
 
    function Source_File_Name (Item : in Base_Parser'Class) return String
    is (Item.Tree.Lexer.File_Name);

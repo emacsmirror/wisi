@@ -1,13 +1,13 @@
 ;;; wisi.el --- Utilities for implementing an indentation/navigation engine using a generalized LR parser -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2012 - 2022  Free Software Foundation, Inc.
+;; Copyright (C) 2012 - 2023  Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@stephe-leake.org>
 ;; Maintainer: Stephen Leake <stephen_leake@stephe-leake.org>
 ;; Keywords: parser
 ;;  indentation
 ;;  navigation
-;; Version: 4.1.1
+;; Version: 4.2.0
 ;; package-requires: ((emacs "25.3") (seq "2.20"))
 ;; URL: https://stephe-leake.org/ada/wisitoken.html
 ;;
@@ -142,35 +142,51 @@ Increasing this will give better results when in the middle of a
 deeply nested statement, but worse in some situations."
   :type 'integer
   :safe #'integerp)
-
-(defcustom wisi-disable-face nil
-  "When non-nil, `wisi-setup' does not enable use of parser for font-lock.
-Useful when debugging parser or parser actions."
-  :type 'boolean
-  :safe #'booleanp)
+(make-variable-buffer-local 'wisi-indent-context-lines)
 
 (defcustom wisi-disable-completion nil
-  "When non-nil, `wisi-setup' does not enable use of wisi xref for completion
+  "When non-nil, `wisi-setup' does not enable use of wisi xref for completion.
 Useful when using wisi in parallel with eglot."
   :type 'boolean
   :safe #'booleanp)
+(make-variable-buffer-local 'wisi-disable-completion)
+
+(defcustom wisi-disable-diagnostics nil
+  "When non-nil, `wisi-setup' does not enable reporting diagnostics.
+Useful when using wisi in parallel with eglot."
+  :type 'boolean
+  :safe #'booleanp)
+(make-variable-buffer-local 'wisi-disable-diagnostics)
+
+(defcustom wisi-disable-face nil
+  "When non-nil, `wisi-setup' does not enable use of parser for font-lock."
+  :type 'boolean
+  :safe #'booleanp)
+(make-variable-buffer-local 'wisi-disable-face)
 
 (defcustom wisi-disable-indent nil
-  "When non-nil, `wisi-setup' does not enable use of parser for indent.
-Useful when using wisi in parallel with eglot."
+  "When non-nil, `wisi-setup' does not enable use of parser for indent."
   :type 'boolean
   :safe #'booleanp)
+(make-variable-buffer-local 'wisi-disable-indent)
 
 (defcustom wisi-disable-parser nil
-  "When non-nil, `wisi-setup' does not enable use of parser for any purpose.
-Useful when using wisi in parallel with eglot."
+  "When non-nil, `wisi-setup' does not enable use of parser for any purpose."
   :type 'boolean
   :safe #'booleanp)
+(make-variable-buffer-local 'wisi-disable-parser)
+
+(defcustom wisi-disable-statement nil
+  "When non-nil, the wisi parser should not be enabled for statement motion."
+  :type 'boolean
+  :safe #'booleanp)
+(make-variable-buffer-local 'wisi-disable-statement)
 
 (defcustom wisi-parse-full-background t
   "If non-nil, do initial full parse in background."
   :type 'boolean
   :safe #'booleanp)
+(make-variable-buffer-local 'wisi-parse-full-background)
 
 (defconst wisi-error-buffer-name "*wisi syntax errors*"
   "Name of buffer for displaying syntax errors.")
@@ -859,14 +875,13 @@ Run the parser first if needed."
 
       (wisi-set-last-parse-region begin parse-end parse-action)
 
-      (unless (eq parse-action 'face)
-	(when (buffer-live-p wisi-error-buffer)
-	  (with-current-buffer wisi-error-buffer
-	    (setq buffer-read-only nil)
-	    (erase-buffer)
-	    (setq buffer-read-only t)
-	    (when (get-buffer-window wisi-error-buffer)
-	      (delete-window (get-buffer-window wisi-error-buffer))))))
+      (when (buffer-live-p wisi-error-buffer)
+	(with-current-buffer wisi-error-buffer
+	  (setq buffer-read-only nil)
+	  (erase-buffer)
+	  (setq buffer-read-only t)
+	  (when (get-buffer-window wisi-error-buffer)
+	    (delete-window (get-buffer-window wisi-error-buffer)))))
 
       (condition-case err
 	  (save-excursion
@@ -898,10 +913,7 @@ Run the parser first if needed."
 	(wisi-parse-error
 	 (cl-ecase parse-action
 	   (face
-	    ;; Caches set by failed elisp parse are ok, but some parse
-	    ;; failures return 'nil' in parse-region.
-	    (when (cdr parsed-region)
-	      (wisi--delete-face-cache (cdr parsed-region))))
+	    (wisi--delete-face-cache (car parsed-region)))
 
 	   (navigate
 	    ;; don't trust parse result
@@ -956,7 +968,7 @@ Run the parser first if needed."
 (defun wisi-validate-cache (begin end error-on-fail parse-action)
   "Ensure cached data for PARSE-ACTION is valid in region BEGIN END"
 
-  ;; Tolerate (point) +- size exceeding buffer limits.
+  ;; Tolerate (point) +- size exeeding buffer limits.
   (setq begin (max begin (point-min)))
   (setq end (min end (point-max)))
 
@@ -1044,8 +1056,8 @@ fails."
 
     (wisi-validate-cache parse-begin parse-end error-on-fail parse-action)))
 
-(defun wisi-fontify-region (begin end)
-  "For `jit-lock-functions'."
+(defun wisi-fontify-region (begin end &optional _contextual)
+  "For `jit-lock-register'."
   (remove-text-properties begin end '(font-lock-face nil))
 
   (if wisi-parse-full-active
@@ -1220,7 +1232,7 @@ Return start cache."
 
 (defun wisi-goto-statement-start ()
   "Move point to token at start of statement point is in or after.
-Return start cache."
+Return start cache (nil if point is before first statement)."
   (interactive)
   (wisi-validate-cache-current-statement t 'navigate)
   (wisi-goto-start (or (wisi-get-cache (point))
@@ -1818,7 +1830,11 @@ with incremental parse after each key event."
   "Set up a buffer for parsing files with wisi."
   ;; wisi-disable-* should be set in a find-file-hook such as
   ;; ada-eglot-setup, not in local variables.
-  (when (and (not wisi-disable-parser) parser)
+  (when (and (not wisi-disable-parser)
+	     parser
+	     ;; indirect buffers handled below.
+	     ;; We don't insist on (null wisi-parser-shared), so we can re-run ada-mode
+	     )
     (setq wisi-parser-shared parser)
     (setq wisi-parser-local (make-wisi-parser-local))
 
@@ -1850,7 +1866,14 @@ with incremental parse after each key event."
 
     (add-hook 'kill-buffer-hook #'wisi-parse-kill-buf 90 t)
 
+    (when (not wisi-disable-completion)
+      (add-hook 'completion-at-point-functions #'wisi-completion-at-point -90 t))
+
+    ;; wisi-disable-diagnostics is handled in wisi-process-parse.el
+
     (when (not wisi-disable-face)
+      ;; font-lock complains about not working in indirect buffers,
+      ;; but we need to set all the local variables for mmm-mode.
       (jit-lock-register #'wisi-fontify-region))
 
     (when (not wisi-disable-indent)
@@ -1858,8 +1881,8 @@ with incremental parse after each key event."
       (setq-local indent-region-function #'wisi-indent-region)
       (setq-local comment-indent-function #'wisi-comment-indent))
 
-    (when (not wisi-disable-completion) ;; FIXME; check that (wisi-prj-xref prj) is valid?
-      (add-hook 'completion-at-point-functions #'wisi-completion-at-point -90 t))
+    ;; wisi-disable-statement just affects whether to start the
+    ;; parser.
 
     (setq-local forward-sexp-function #'wisi-forward-sexp)
 
@@ -1867,11 +1890,19 @@ with incremental parse after each key event."
       (when wisi-save-all-changes
 	(setf (wisi-parser-local-all-changes wisi-parser-local) nil))
 
-      ;; We don't wait for this to complete here, so users can scroll
-      ;; around while the initial parse runs. font-lock will not work
-      ;; during that time (the parser is busy, the buffer is read-only).
-      (when (< 0 wisi-debug) (message "start initial full parse in %s" (current-buffer)))
-      (wisi-parse-incremental wisi-parser-shared 'none :full t :nowait wisi-parse-full-background)
+      (unless (buffer-base-buffer)
+	;; If are in an indirect buffer (ie mmm-temp-buffer), We need
+	;; to set all the local variables above, but _not_ start a
+	;; parse; that would duplicate and conflict with the parse in
+	;; the main buffer.
+
+	;; We don't wait for this to complete here, so users can scroll
+	;; around while the initial parse runs. font-lock will not work
+	;; during that time (the parser is busy, the buffer is read-only).
+	(when (< 0 wisi-debug) (message "starting initial full parse; parser %s buffer %s"
+					(wisi-process--parser-label parser)
+					(current-buffer)))
+	(wisi-parse-incremental wisi-parser-shared 'none :full t :nowait wisi-parse-full-background))
 
       (when wisi-save-text-tree
 	(wisi-parse-save-text-tree-auto wisi-parser-shared t))

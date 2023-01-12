@@ -89,7 +89,7 @@ package Wisi.Parse_Context is
    --  Raise Not_Found if no context found for File_Name.
    --  If Have_Text, raise Not_Found if Text_Buffer is empty.
 
-   procedure Kill (File_Name : in String);
+   procedure Kill (File_Name : in String; Free_Parser : in WisiToken.Parse.Free_Parser);
 
    procedure Clear;
    --  Delete all contexts.

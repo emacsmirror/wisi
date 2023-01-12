@@ -36,7 +36,17 @@ is
             Language_Matching_Begin_Tokens => Language_Matching_Begin_Tokens,
             Language_String_ID_Set         => Language_String_ID_Set));
    end Factory;
+
+   procedure Free_Parser (Object : in out WisiToken.Parse.Base_Parser_Access)
+   is
+      LR_Parser : WisiToken.Parse.LR.Parser.Parser_Access := WisiToken.Parse.LR.Parser.Parser_Access (Object);
+   begin
+      WisiToken.Parse.LR.Parser.Free (LR_Parser);
+      Object := null;
+   end Free_Parser;
+
 begin
    Process_Stream
-     (Name, Language_Protocol_Version, Params, Factory'Unrestricted_Access, Trace'Unchecked_Access);
+     (Name, Language_Protocol_Version, Params,
+      Factory'Unrestricted_Access, Free_Parser'Unrestricted_Access, Trace'Unchecked_Access);
 end Gen_Emacs_Wisi_LR_Parse;

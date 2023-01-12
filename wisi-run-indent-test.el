@@ -36,6 +36,10 @@ text, after each edit in an incremental parse, and before each partial parse.")
 (defun test-in-comment-p ()
   (nth 4 (syntax-ppss)))
 
+(defun wisi-wait-parser()
+  (while (wisi-process--parser-busy wisi-parser-shared)
+    (accept-process-output nil wisi-process-time-out)))
+
 (defvar test-face-wait-fn nil
   "Function to call after `font-lock-ensure' to wait for face to actually be set.")
 
@@ -52,10 +56,12 @@ FACE may be a list."
        (error "can't find '%s'" token)))
 
     (when (not skip-recase-test) ;; should be t when wisi-disable-face is t
-      (let ((token (match-string 0))
+      (let ((token (match-string-no-properties 0))
 	    (test-pos (match-beginning 0)))
 
 	(when wisi-parser-shared
+	  ;; it may be busy doing initial parse in another file opened by an xref command.
+	  (wisi-wait-parser)
 	  (wisi-validate-cache (line-beginning-position) (line-end-position) nil 'face))
 
 	(font-lock-ensure (line-beginning-position) (line-end-position))
@@ -93,9 +99,7 @@ FACE may be a list."
 	  (when (text-property-not-all test-pos (+ test-pos (length token)) key token-face)
        	    (error "mixed faces, expecting %s for '%s'" face token))
 
-	  (unless (or (and (listp face)
-			   (memq token-face face))
-		      (eq token-face face))
+	  (unless (equal token-face face)
 	    (error "found face %s, expecting %s for '%s'" token-face face token))
 	  )))))
 
@@ -212,13 +216,24 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
       (wisi-test-save-log-1 (get-buffer (nth 0 item)) (nth 1 item))))
     ))
 
+(defvar eglot-send-changes-idle-time)
+(declare-function jsonrpc--debug "jsonrpc.el")
+
 (defun run-test-here ()
   "Run an indentation and casing test on the current buffer."
   (interactive)
-  (condition-case-unless-debug err
+  (when wisi-incremental-parse-enable
+    ;; wait for the parser to finish the initial parse
+    (wisi-wait-parser))
+
+  (condition-case err
       (progn
 	(setq indent-tabs-mode nil)
-	(setq jit-lock-context-time 0.0);; for test-face
+
+	;; for test-face
+	(setq jit-lock-context-time 0.0)
+	(setq-local font-lock-ensure-function 'jit-lock-fontify-now) ;; it's not at all clear what's resetting this
+	(setq-local eglot-send-changes-idle-time 0.0) ;; FIXME: did not help test-face
 
 	;; Test files use wisi-prj-select-cached to parse and select a project file.
 	(setq project-find-functions (list #'wisi-prj-current-cached))
@@ -230,6 +245,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 	  (wisi-process-parse-save-text wisi-parser-shared save-edited-text t))
 
 	(let ((error-count 0)
+	      (error-lines '())
 	      (pass-count 0)
 	      (test-buffer (current-buffer))
 	      cmd-line
@@ -263,10 +279,13 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 	     ((string= (match-string 1) "CMD")
 	      (looking-at ".*$")
 	      (setq cmd-line (line-number-at-pos)
-		    last-cmd (match-string 0))
+		    last-cmd (match-string-no-properties 0)
+		    force-fail nil)
 	      (let ((msg (format "%s:%d: test %s" (buffer-file-name) cmd-line last-cmd)))
 		(when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 		(message "%s" msg)
+		(when (and (fboundp 'eglot-current-server) (eglot-current-server))
+		  (jsonrpc--debug (eglot-current-server) msg))
 		(save-excursion
 		  (setq last-result
 			(condition-case-unless-debug err
@@ -278,12 +297,15 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
                                 (message msg)))
 			  ((error wisi-parse-error)
 			   (setq error-count (1+ error-count))
+			   (push cmd-line error-lines)
 			   (setq msg (concat msg " ... signaled"))
 			   (setq force-fail t)
 			   (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
 			   (message msg)
 			   (setq msg (format "... %s: %s" (car err) (cdr err)))
 			   (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
+			   (when (and (fboundp 'eglot-current-server) (eglot-current-server))
+			     (jsonrpc--debug (eglot-current-server) msg))
 			   (message msg)
 			   nil)))
 		  ))
@@ -307,6 +329,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 		    (message msg))
 
 		(setq error-count (1+ error-count))
+		(push (line-number-at-pos) error-lines)
 
 		(let ((msg (concat
 			    (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
@@ -317,8 +340,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 				      last-result
 				      expected-result)))))
 		  (when wisi-parser-shared (wisi-parse-log-message wisi-parser-shared msg))
-		  (message "%s" msg))
-		(setq force-fail nil)))
+		  (message "%s" msg))))
 
 	     ((string= (match-string 1) "RESULT_START")
 	      (looking-at ".*$")
@@ -339,6 +361,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 	     ((string= (match-string 1) "RESULT_FINISH")
 	      (unless (equal (length expected-result) (length last-result))
 		(setq error-count (1+ error-count))
+		(push (line-number-at-pos) error-lines)
 		;; this is used for gpr-query tests, not parser tests,
 		;; so we don't write to the parser log.
 		(message
@@ -353,6 +376,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 		(while (< i (length expected-result))
 		  (unless (equal (nth i expected-result) (nth i last-result))
 		    (setq error-count (1+ error-count))
+		    (push (line-number-at-pos) error-lines)
 		    (message
 		     (concat
 		      (format "error: %s:%d:\n" (buffer-file-name) (line-number-at-pos))
@@ -383,6 +407,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 
 	     (t
 	      (setq error-count (1+ error-count))
+	      (push (line-number-at-pos) error-lines)
 	      (error (concat "Unexpected EMACS test command " (match-string 1))))))
 
 	  (let ((msg (format "%s:%d tests passed %d"
@@ -391,6 +416,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 	    (message msg))
 
 	  (when (> error-count 0)
+	    (message "errors on lines: %s" error-lines)
 	    (error
 	     "%s:%d: aborting due to previous errors (%d)"
 	     (buffer-file-name) (line-number-at-pos (point)) error-count))
@@ -435,9 +461,9 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
    (cl-case system-type
      (gnu/linux
       (list
-       (cons 'font "DejaVu Sans Mono-8")
+       (cons 'font "DejaVu Sans Mono-11")
        (cons 'width 120) ;; characters; fringe extra
-       (cons 'height 94) ;; characters
+       (cons 'height 73) ;; characters
        (cons 'left 0)
        (cons 'top 0)))
      (windows-nt
@@ -462,12 +488,14 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
   (other-window -1))
 (define-key global-map [M-C-up] 'wisi-prev-window)
 (define-key global-map [M-C-down] 'other-window)
+(define-key global-map [f11] 'switch-to-buffer)
 
 (defun run-test (file-name)
   "Run an indentation and casing test on FILE-NAME."
   (interactive "f")
 
   (setq-default indent-tabs-mode nil) ;; no tab chars in files
+  (setq message-log-max most-positive-fixnum)
 
   ;; we'd like to run emacs from a makefile as:
   ;;
@@ -483,12 +511,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
   ;;
   ;; emacs -Q -l runtest.el --eval '(progn (run-test "<filename>")(kill-emacs))'
   ;;
-  ;; Then we have problems with font lock defaulting to jit-lock; that
-  ;; screws up font-lock tests because the test runs before jit-lock
-  ;; does. This forces default font-lock, which fontifies the whole
-  ;; buffer when (font-lock-fontify-buffer) is called, which tests
-  ;; that rely on font-lock do explicitly.
-  (setq font-lock-support-mode nil)
+  ;; Then we must use (font-lock-ensure) to force immediate fontification.
 
   (setq xref-prompt-for-identifier nil)
 

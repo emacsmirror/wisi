@@ -249,6 +249,7 @@ package body Emacs_Wisi_Common_Parse is
       Language_Protocol_Version : in String;
       Params                    : in Process_Start_Params;
       Factory                   : in WisiToken.Parse.Factory;
+      Free_Parser               : in WisiToken.Parse.Free_Parser;
       Trace                     : in WisiToken.Trace_Access)
    is
       use Ada.Text_IO;
@@ -349,7 +350,7 @@ package body Emacs_Wisi_Common_Parse is
                   Reset_Content_On_Free => False);
 
             elsif Match ("kill-context") then
-               Wisi.Parse_Context.Kill (File_Name => Wisi.Get_String (Command_Line, Last));
+               Wisi.Parse_Context.Kill (File_Name => Wisi.Get_String (Command_Line, Last), Free_Parser => Free_Parser);
 
             elsif Match ("memory_report_reset") then
                --  Args: <none>

@@ -1,31 +1,31 @@
-# For compiling in elpa
+# For compiling wisi code in elpa worktree
+
+#export Standard_Common_Build := Debug
 
 .PHONY : all force
 
-all : byte-compile autoloads
+all : build_ada byte-compile
 
-ifeq ($(shell uname),Linux)
-EMACS_EXE ?= emacs
+build_ada : wisi.gpr force
+	gprbuild -p -j8 wisi.gpr
 
-else ifeq ($(shell uname),Darwin)
-EMACS_EXE ?= "/Applications/Emacs.app/Contents/MacOS/Emacs"
+wisi.gpr : wisi.gpr.gp
+	gnatprep -DELPA="yes" wisi.gpr.gp wisi.gpr
 
-else
-# windows
-# specify uniscribe to workaround weird Windows harfbuzz bug
-EMACS_EXE ?= emacs -xrm Emacs.fontBackend:uniscribe
-
-endif
-
-BYTE_COMPILE := "(progn (setq byte-compile-error-on-warn t)(batch-byte-compile))"
+BYTE_COMPILE := "(progn (setq package-load-list '((wisi) (ada-mode) (gnat-compiler) all)) (package-initialize)(setq byte-compile-error-on-warn t)(batch-byte-compile))"
 byte-compile : byte-compile-clean
-	$(EMACS_EXE) -Q -batch -L . --eval $(BYTE_COMPILE) *.el
+	emacs -Q -batch -L . --eval $(BYTE_COMPILE) *.el
 
 byte-compile-clean :
 	rm -f *.elc
 
-autoloads : force
-	$(EMACS_EXE) -Q -batch --eval "(progn (setq generated-autoload-file (expand-file-name \"autoloads.el\"))(update-directory-autoloads \".\"))"
+clean : force
+	rm -rf wisi.gpr obj *parse_table*
 
+recursive-clean : force
+	gprclean -r -P wisi.gpr
 
+# Local Variables:
+# eval: (unless dvc-doing-ediff-p (load-file "prj-wisi.el"))
+# End:
 # end of file

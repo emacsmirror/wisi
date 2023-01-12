@@ -55,7 +55,7 @@
   ;;
   ;; New exceptions may be added interactively via
   ;; `wisi-case-create-exception'.  If an exception is defined in
-  ;; multiple files, the first occurrence is used.
+  ;; multiple files, the first occurence is used.
   ;;
   ;; The file format is one word per line, which gives the casing to be
   ;; used for that word in source code.  If the line starts with
@@ -166,6 +166,11 @@ If NOT-FULL is non-nil, very slow refresh operations may be skipped.")
 ;; modes don't have a language-specific compiler (eg java-wisi) or
 ;; xref process (eg gpr-mode).
 
+;;;###autoload
+(defun wisi-prj-make-compiler (label)
+  ;; We assume the constructor is autoloaded
+  (funcall (intern (format "create-%s-compiler" (symbol-name label)))))
+
 (cl-defgeneric wisi-compiler-parse-one (compiler project name value)
   "Set NAME, VALUE in COMPILER, if recognized by COMPILER.
 PROJECT is an `wisi-prj' object; COMPILER is `wisi-prj-compiler'.")
@@ -195,6 +200,10 @@ SOURCE-BUFFER contains the source code referenced in the error message.")
 
 (cl-defgeneric wisi-compiler-root-dir (compiler)
   "Return a meaningful root directory; nil if none.")
+
+(defun wisi-prj-make-xref (label)
+  ;; We assume the constructor is autoloaded
+  (funcall (intern (format "create-%s-xref" (symbol-name label)))))
 
 (cl-defgeneric wisi-xref-parse-one (_xref _project _name _value)
   "If recognized by XREF, set NAME, VALUE in XREF, return non-nil.
@@ -534,7 +543,7 @@ With prefix, keep previous references in output buffer."
     ))
 
 (defun wisi-show-local-references (&optional append)
-  "Show all references of identifier at point occurring in current file.
+  "Show all references of identifier at point occuring in current file.
 With prefix, keep previous references in output buffer."
   (interactive "P")
   (let* ((project (wisi-check-current-project (buffer-file-name)))
@@ -611,6 +620,9 @@ COLUMN - Emacs column of the start of the identifier")
    (and (wisi-prj-compiler project)
 	(wisi-compiler-root-dir (wisi-prj-compiler project)))
    (car (wisi-prj-source-path project))))
+
+(cl-defmethod project-name ((project wisi-prj))
+  (wisi-prj-name project))
 
 (cl-defmethod project-files ((project wisi-prj) &optional dirs)
   (let (result)
@@ -998,7 +1010,7 @@ Return (cons full-exceptions partial-exceptions)."
     ))
 
 (defun wisi--case-merge-exceptions (result new)
-  "Merge NEW exceptions into RESULT.
+  "Merge NEW exeptions into RESULT.
 An item in both lists has the RESULT value."
   (dolist (item new)
     (unless (assoc-string (car item) result t)
@@ -1429,7 +1441,11 @@ For `xref-backend-functions'."
   (let ((prj (project-current)))
     (when (and (wisi-prj-p prj)
 	       (wisi-prj-xref prj))
-      prj)))
+      (cond
+       ((eq (wisi-prj-xref prj) 'eglot)
+	'eglot)
+       (t prj))
+      )))
 
 ;;;; project-find-functions alternatives
 

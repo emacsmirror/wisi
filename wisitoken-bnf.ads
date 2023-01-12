@@ -31,10 +31,8 @@ with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers.Indefinite_Doubly_Linked_Lists;
 with Ada.Containers.Ordered_Maps;
 with Ada.Containers.Vectors;
-with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
-with System.Multiprocessors;
 with WisiToken.Parse.LR;
 with WisiToken.Syntax_Trees;
 package WisiToken.BNF is
@@ -129,17 +127,12 @@ package WisiToken.BNF is
       Tuple : in     Generate_Tuple);
 
    function Text_Rep_File_Name
-     (File_Name_Root      : in String;
-      Tuple               : in Generate_Tuple;
-      Generate_Task_Count : in System.Multiprocessors.CPU_Range;
-      If_Lexer_Present    : in Boolean;
-      Test_Main           : in Boolean)
+     (File_Name_Root   : in String;
+      Tuple            : in Generate_Tuple;
+      If_Lexer_Present : in Boolean)
      return String
    is (File_Name_Root & "_" &
          Ada.Characters.Handling.To_Lower (Generate_Algorithm_Image (Tuple.Gen_Alg).all) &
-         (if Tuple.Gen_Alg = LR1 and Test_Main
-          then "_t" & Ada.Strings.Fixed.Trim (Generate_Task_Count'Image, Ada.Strings.Both)
-          else "") &
          (if If_Lexer_Present
           then "_" & Lexer_Image (Tuple.Lexer).all
           else "") &

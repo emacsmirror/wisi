@@ -1,11 +1,40 @@
 GNU Emacs wisi NEWS -- history of user-visible changes.
 
-Copyright (C) 2014 - 2022 Free Software Foundation, Inc.
+Copyright (C) 2014 - 2023 Free Software Foundation, Inc.
 
 Please send wisi bug reports to bug-gnu-emacs@gnu.org, with
 'wisi' in the subject. If possible, use M-x report-emacs-bug.
 
 
+* wisi 4.2.0
+3 Jan 2023
+
+** New user variables wisi-disable-completion,
+   wisi-disable-diagnostics, wisi-disable-indent, wisi-disable-parser,
+   wisi-disable-statement to control various features. Normally set by
+   the major mode when it chooses which backends to use.
+
+** New wisi project file statement; @code{import_env_var} - copies the
+   value of an environment variable from @code{process-environment} to
+   the project environment variables.
+
+** Case exception files declared in a wisi project file are now
+   searched for on the project file search path.
+
+** No longer displays right fringe marks, that were supposed to show
+   the location of erros within a file; too hard to get right and
+   maintain, not very useful.
+
+** No longer sets global value of skeleton-end-hook.
+
+** Several small bug fixes
+
+** parser process protocol version 7
+
+   Add commands dump_prev_tree, save_prev_auto; useful for debugging
+   incremental parse issues. Controlled by new user variable
+   wisi-save-text-tree.
+   
 * wisi 4.1.1
 8 Oct 2022
 

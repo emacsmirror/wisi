@@ -1,6 +1,6 @@
 ;;; wisi-process-parse.el --- interface to external parse program  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 2014, 2017 - 2022 Free Software Foundation, Inc.
+;; Copyright (C) 2014, 2017 - 2023 Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
 ;;
@@ -22,7 +22,7 @@
 (require 'cl-lib)
 (require 'wisi-parse-common)
 
-(defconst wisi-process-parse-protocol-version "6"
+(defconst wisi-process-parse-protocol-version "7"
   "Defines data exchanged between this package and the background process.
 Must match emacs_wisi_common_parse.ads Protocol_Version.")
 
@@ -153,10 +153,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 		(with-current-buffer (car wisi-parse-full-active)
 		  (read-only-mode -1)
 		  (let ((region (cdr wisi-parse-full-active)))
-		    (when (and (>= (cdr region) (car region))
-			       (>= (cdr region) (point-min))
-			       (<= (car region) (point-max)))
-		      (font-lock-flush (car region) (cdr region))))
+		    (font-lock-flush (max (point-min) (car region)) (min (point-max) (cdr region))))
 
 		  (set-process-filter process nil)
 
@@ -172,9 +169,9 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 		  )
 	      (setq wisi-parse-full-active nil)
 	      ))))
-	  ))))
+	))))
 
-(cl-defmethod wisi-parse-require-process (parser &key nowait)
+(cl-defmethod wisi-parse-require-process ((parser wisi-process--parser) &key nowait)
   (unless (process-live-p (wisi-process--parser-process parser))
     (let ((process-connection-type nil) ;; use a pipe, not a pty; avoid line-by-line reads
 	  (process-name (format " *%s_wisi_parse*" (wisi-process--parser-label parser))))
@@ -192,7 +189,9 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 	(erase-buffer));; delete any previous messages, prompt
 
       (when (or (not nowait) (>= wisi-debug 2))
-	(message "starting parser %s ..." (wisi-process--parser-label parser)))
+	(message "starting wisi parser %s in buffer %s ..."
+		 (wisi-process--parser-label parser)
+		 (current-buffer)))
       (wisi-parse-log-message parser "create process")
 
       (setf (wisi-process--parser-version-checked parser) nil)
@@ -219,7 +218,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 
       (unless nowait
 	(wisi-process-parse--wait parser)
-	(message "starting parser ... done"))
+	(message "starting wisi parser ... done"))
       )))
 
 (defun wisi-process-parse--wait (parser)
@@ -258,7 +257,7 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 (defun wisi-process-parse--add-cmd-length (cmd)
   "Return CMD (a string) with length prefixed."
   ;; Characters in cmd length must match emacs_wisi_common_parse.adb
-  ;; Get_Command_Length. If the actual length overflows the allotted
+  ;; Get_Command_Length. If the actual length overflows the alloted
   ;; space, we will get a protocol_error from the parser
   ;; eventually. Caller should prevent that and send an alternate
   ;; command.
@@ -324,6 +323,10 @@ complete. PARSE-END is end of desired parse region."
     ;; we don't log the buffer text; may be huge
     (process-send-string process (buffer-substring-no-properties begin send-end))
 
+    ;; We don't set wisi-process--parser-update-fringe; partial parse
+    ;; almost always has bogus errors at the start and end of the
+    ;; parse.
+    ;;
     ;; We don't wait for the send to complete here.
     ))
 
@@ -390,7 +393,7 @@ complete."
 		    )))
 	   (process (wisi-process--parser-process parser)))
 
-      (setf (wisi-process--parser-update-fringe parser) t)
+      (setf (wisi-process--parser-update-fringe parser) (not wisi-disable-diagnostics))
 
       (with-current-buffer (wisi-process--parser-buffer parser)
 	(erase-buffer))
@@ -819,6 +822,7 @@ Source buffer is current."
 
 (cl-defmethod wisi-parse-reset ((parser wisi-process--parser))
   (setf (wisi-process--parser-busy parser) nil)
+  (setq wisi-parse-full-active nil)
   (wisi-parse-require-process parser)
   (wisi-process--kill-context parser)
   (wisi-process-parse--wait parser))
@@ -838,6 +842,10 @@ Source buffer is current."
 
 (cl-defun wisi-process-parse--prepare (parser parse-action &key nowait)
   "Check for parser busy and startup, mark parser busy, require parser process."
+  (unless (process-live-p (wisi-process--parser-process parser))
+    (wisi-parse-log-message parser "process died")
+    (error "parser process died"))
+
   (when (wisi-process--parser-busy parser)
     (when (< 1 wisi-debug)
       (wisi-parse-log-message parser (format "parse--prepare %s in %s parser busy" parse-action (current-buffer))))
@@ -1177,17 +1185,19 @@ Source buffer is current."
     ;; The parser process has not finished starting up, or has not yet
     ;; been started. If this is the very first Ada file in the current
     ;; project, and there is more text in the file than the process
-    ;; send buffer holds, w-p-p--send-* hangs waiting for the process
+    ;; send buffer holds, w-p-p--send-* waits for the process
     ;; to start reading, which is after it loads the parse table,
     ;; which can take noticeable time for Ada.
-    (message "starting parser %s ..." (wisi-process--parser-label parser)))
+    (message "waiting for wisi parser %s start in buffer %s ..."
+	     (wisi-process--parser-label parser)
+	     (current-buffer)))
   (wisi-process-parse--prepare parser parse-action :nowait nowait)
   (setf (wisi-parser-local-lexer-errors wisi-parser-local) nil)
   (setf (wisi-parser-local-parse-errors wisi-parser-local) nil)
   (cond
    ((and full nowait)
     (set-process-filter (wisi-process--parser-process parser) #'wisi-process-parse--filter)
-    (setq wisi-parse-full-active (cons (current-buffer) (cons (point-max) (point-min))))
+    (setq wisi-parse-full-active (cons (current-buffer) (cons (point-min) (point-max))))
     (read-only-mode 1)
     (wisi-process-parse--send-incremental-parse parser full))
    (t

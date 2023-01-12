@@ -6,7 +6,7 @@
 # $1 : optional --prefix=<dir>
 #
 # If you don't have write permission in the GNAT installation
-# directory, you need to use --prefix=<dir>, or run with root privileges.
+# directory, you need to use --prefix=<dir>, or run with root priviledges.
 
 WISI_DIR=`ls -d ../wisi-3.1.?`
 

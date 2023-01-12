@@ -25,8 +25,6 @@
 
 pragma License (Modified_GPL);
 
-with System.Multiprocessors;
-with WisiToken.Generate.LR1_Items;
 with WisiToken.Productions;
 package WisiToken.Generate.LR.LR1_Generate is
 
@@ -42,7 +40,6 @@ package WisiToken.Generate.LR.LR1_Generate is
       Include_Extra         : in     Boolean                          := False;
       Ignore_Conflicts      : in     Boolean                          := False;
       Recursion_Strategy    : in     WisiToken.Recursion_Strategy     := Full;
-      Task_Count            : in     System.Multiprocessors.CPU_Range := 1;
       Use_Cached_Recursions : in     Boolean                          := False;
       Recursions            : in out WisiToken.Generate.Recursions)
      return Parse_Table_Ptr
@@ -63,14 +60,11 @@ package WisiToken.Generate.LR.LR1_Generate is
    --
    --  Unless Ignore_Unknown_Conflicts is True, raise Grammar_Error if there
    --  are unknown conflicts.
-   --
-   --  Use Task_Count tasks in computing LR1 items. Default is 1 so unit
-   --  tests return repeatable results.
 
    ----------
    --  visible for unit test
 
-   function LR1_Item_Sets_Single
+   function LR1_Item_Sets
      (Has_Empty_Production    : in Token_ID_Set;
       First_Terminal_Sequence : in Token_Sequence_Arrays.Vector;
       Grammar                 : in WisiToken.Productions.Prod_Arrays.Vector;
@@ -78,15 +72,5 @@ package WisiToken.Generate.LR.LR1_Generate is
       Hash_Table_Size         : in Positive := LR1_Items.Item_Set_Trees.Default_Rows)
      return LR1_Items.Item_Set_List;
    --  [dragon] algorithm 4.9 pg 231; figure 4.38 pg 232; procedure "items", no tasking
-
-   function LR1_Item_Sets_Parallel
-     (Has_Empty_Production    : in Token_ID_Set;
-      First_Terminal_Sequence : in Token_Sequence_Arrays.Vector;
-      Grammar                 : in WisiToken.Productions.Prod_Arrays.Vector;
-      Descriptor              : in WisiToken.Descriptor;
-      Task_Count              : in System.Multiprocessors.CPU_Range;
-      Hash_Table_Size         : in Positive := LR1_Items.Item_Set_Trees.Default_Rows)
-     return LR1_Items.Item_Set_List;
-   --  With tasking; used if State_Count known.
 
 end WisiToken.Generate.LR.LR1_Generate;

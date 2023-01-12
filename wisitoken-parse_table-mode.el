@@ -7,7 +7,7 @@
 ;; Keywords: parser
 ;; Version: 1.0
 ;; package-requires: ((emacs "25.1"))
-;; URL: http://www.nongnu.org/ada-mode/wisi/wisi.html
+;; URL: https://www.nongnu.org/ada-mode/wisi/wisi.html
 ;;
 ;; This file is part of GNU Emacs.
 ;;
@@ -116,7 +116,8 @@ Symbol can be a nonterminal name, or a state number."
 (defun wisitok-p_t-conflict-alist ()
   (let ((conflicts nil)
 	(nonterms (wisitok-p_t-nonterm-alist))
-	line)
+	line
+	(count 0))
 
     (save-excursion
       (goto-char (point-min))
@@ -148,7 +149,10 @@ Symbol can be a nonterminal name, or a state number."
 	  (setq conflict (concat conflict " on token " on-token))
 
 	  (push (cons conflict (list (buffer-file-name) line 0)) conflicts)
-	  )))
+	  )
+	;; Let user know we are not hung; can take a long time in large buffers.
+	(setq count (1+ count))
+	(message "conflict %d" count)))
     conflicts))
 
 (defconst wisitok-p_t-action-nonterm-regexp "\\(?:SHIFT\\|REDUCE\\) [[:alnum:]_]+")

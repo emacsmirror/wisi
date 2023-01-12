@@ -21,6 +21,7 @@ pragma License (GPL);
 with Ada.Command_Line;
 with Ada.Directories;
 with Ada.Environment_Variables;
+with Ada.Strings.Fixed;
 with Ada.Text_IO;
 package body WisiToken.BNF is
 

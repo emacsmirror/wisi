@@ -348,7 +348,8 @@ begin
                      Recover_Duration : constant Duration := Clock - Start;
                   begin
                      Trace.Put_Clock
-                       ("post-recover" & Shared_Parser.Parsers.Count'Img & " active," & Recover_Duration'Image);
+                       ("post-recover" & Shared_Parser.Parsers.Count'Img & " parsers active," &
+                          Recover_Duration'Image & " seconds");
                   end;
                end if;
 

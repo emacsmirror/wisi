@@ -22,7 +22,10 @@ with Wisi;
 with WisiToken.Parse;
 package Run_Wisi_Common_Parse is
 
-   procedure Parse_File (Factory : in WisiToken.Parse.Factory; Trace : in WisiToken.Trace_Access);
+   procedure Parse_File
+     (Factory     : in WisiToken.Parse.Factory;
+      Free_Parser : in WisiToken.Parse.Free_Parser;
+      Trace       : in WisiToken.Trace_Access);
    --  Reads command line, processes command(s).
 
 end Run_Wisi_Common_Parse;
