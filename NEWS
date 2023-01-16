@@ -6,6 +6,11 @@ Please send wisi bug reports to bug-gnu-emacs@gnu.org, with
 'wisi' in the subject. If possible, use M-x report-emacs-bug.
 
 
+* wisi 4.2.2
+16 Jan 2023
+
+** Fix bug in wisi parser startup.
+
 * wisi 4.2.0
 3 Jan 2023
 
@@ -50,6 +55,9 @@ Please send wisi bug reports to bug-gnu-emacs@gnu.org, with
 
 ** In wisi project files, import_env_var=<name> can be used to inherit
    an environment variable from the Emacs process.
+
+* wisi 4.0.0
+22 Oct 2022 beta prompted to release
 
 * wisi 4.0.beta
 9 Jul 2022 beta testing

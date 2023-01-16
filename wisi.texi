@@ -23,21 +23,13 @@ developing GNU and promoting software freedom.''
 * Wisi: (wisi).         Error-correcting LR parsers and project integration.
 @end direntry
 
-@titlepage
-@sp 10
-@title Wisi Version 4.2.0
-@page
-@vskip 0pt plus 1filll
-@insertcopying
-@end titlepage
-
 @contents
 
 @ifnottex
 @node Top
 @top Top
 
-Wisi Version 4.2.0
+Wisi Version 4.2
 @end ifnottex
 
 @menu
