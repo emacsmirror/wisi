@@ -6,6 +6,11 @@ Please send wisi bug reports to bug-gnu-emacs@gnu.org, with
 'wisi' in the subject. If possible, use M-x report-emacs-bug.
 
 
+* wisi 4.2.3
+26 Jan 2023
+
+** Fix byte-compiler warnings reported by Emacs master.
+
 * wisi 4.2.2
 16 Jan 2023
 
