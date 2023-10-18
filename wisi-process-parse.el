@@ -556,6 +556,10 @@ PARSER will respond with one or more Query messages."
   ;; sexp is [Indent line-number line-begin-char-pos indent]
   ;; see `wisi-process-parse--execute'
   (let ((pos (aref sexp 2)))
+    (when (< 0 wisi-debug)
+	(unless (= (aref sexp 1) (line-number-at-pos pos))
+	  (error "indent: line/pos mismatch at %d" pos)))
+
     (with-silent-modifications
       (when (< (point-min) pos)
 	(put-text-property
@@ -626,8 +630,8 @@ PARSER will respond with one or more Query messages."
 	(file-name (if (buffer-file-name) (file-name-nondirectory (buffer-file-name)) "")))
     ;; file-name can be nil during vc-resolve-conflict
 
-    (when (not name-1-pos)
-      (setq name-1-pos name-2-pos)
+    (when (or (not name-1-pos) (= 0 name-1-pos))
+      (setq name-1-pos (min name-2-pos (point-max)))
       (setq name-2-pos 0))
 
     (when (not name-2-pos)
@@ -635,15 +639,15 @@ PARSER will respond with one or more Query messages."
 
     (push (make-wisi--parse-error
 	   :pos (copy-marker name-1-pos)
-	   :pos-2 (copy-marker name-2-pos)
+	   :pos-2 (when (< 0 name-2-pos) (copy-marker name-2-pos))
 	   :message
-	   (format
-	    (concat "%s:%d:%d: %s"
-		    (when (> 0 name-2-pos) " %s:%d:%d"))
-	    file-name (line-number-at-pos name-1-pos t) (funcall column-at-pos name-1-pos)
-	    (aref sexp 4)
-	    (when (> 0 name-2-pos)
-	      file-name (line-number-at-pos name-2-pos t) (funcall column-at-pos name-2-pos))))
+	   (concat
+	    (format "%s:%d:%d: %s"
+		    file-name (line-number-at-pos name-1-pos t) (funcall column-at-pos name-1-pos)
+		    (aref sexp 4))
+	    (when (< 0 name-2-pos)
+              (format " %s:%d:%d"
+		    file-name (line-number-at-pos name-2-pos t) (funcall column-at-pos name-2-pos)))))
 	  (wisi-parser-local-parse-errors wisi-parser-local))
     ))
 
@@ -667,19 +671,20 @@ PARSER will respond with one or more Query messages."
 	       (edit-pos (aref (aref sexp i) 1))
 	       (err (wisi-process-parse--find-err error-pos (wisi-parser-local-parse-errors wisi-parser-local))))
           (when err
-	    (cl-nsubst
-	     (push
-	      (make-wisi--parse-error-repair
-	       :pos (copy-marker edit-pos)
-	       :inserted (mapcar (lambda (id) (aref token-table id)) (aref (aref sexp i) 2))
-	       :deleted  (mapcar (lambda (id) (aref token-table id)) (aref (aref sexp i) 3))
-	       :deleted-region (aref (aref sexp i) 4))
-	      (wisi--parse-error-repair err)) ;; new
-	     err ;; old
-	     (wisi-parser-local-parse-errors wisi-parser-local) ;; tree
-	     :test (lambda (old _el)
-	             (= (wisi--parse-error-pos old)
-	                (wisi--parse-error-pos err)))))
+	    (with-no-warnings ;; byte-compiler complains that "result of cl-nsubst is not used", but it's not useful!
+	     (cl-nsubst
+	      (push
+	       (make-wisi--parse-error-repair
+		:pos (copy-marker edit-pos)
+		:inserted (mapcar (lambda (id) (aref token-table id)) (aref (aref sexp i) 2))
+		:deleted  (mapcar (lambda (id) (aref token-table id)) (aref (aref sexp i) 3))
+		:deleted-region (aref (aref sexp i) 4))
+	       (wisi--parse-error-repair err)) ;; new
+	      err ;; old
+	      (wisi-parser-local-parse-errors wisi-parser-local) ;; tree
+	      :test (lambda (old _el)
+	              (= (wisi--parse-error-pos old)
+	                 (wisi--parse-error-pos err))))))
 	   )))
     ))
 
@@ -837,7 +842,15 @@ Source buffer is current."
     ;; the process to die.
     (setf (wisi-process--parser-busy parser) t)
     (wisi-parse-log-message parser "kill process")
-    (kill-process (wisi-process--parser-process parser)))
+    (let ((process (wisi-process--parser-process parser)))
+      (kill-process process)
+      (while (process-live-p process)
+	(accept-process-output
+	 process
+	 wisi-process-time-out
+	 nil ;; milliseconds
+	 nil)  ;; just-this-one
+	)))
   (setf (wisi-process--parser-busy parser) nil))
 
 (cl-defun wisi-process-parse--prepare (parser parse-action &key nowait)
@@ -917,7 +930,7 @@ Source buffer is current."
         (source-buffer (wisi-process--parser-source-buffer parser))
 	log-start)
     (defvar w32-pipe-read-delay)
-    (condition-case err
+    (condition-case-unless-debug err
 	(let* ((process (wisi-process--parser-process parser))
 	       (w32-pipe-read-delay 0) ;; fastest subprocess read
 	       response
@@ -1506,19 +1519,18 @@ prompt for it."
 	     (string-equal (match-string 2) source-file))
 	(goto-char (match-end 0))
 	(looking-at " \\([0-9]+\\) \\([0-9]+\\)")
-	(let ((label (string-to-number (match-string 1)))
-	      (pos (match-string 2)))
+	(let* ((label (string-to-number (match-string 1)))
+	       (pos (match-string 2))
+	       (rest-of-line (buffer-substring (match-end 2) (line-end-position))))
 	  (set-buffer cmd-buffer)
 	  (goto-char (point-max))
-	  (insert "--  query_tree "
-		  (cl-ecase label
-		    (0 "node ")
-		    (1 "containing_statement ")
-		    (2 "ancestor ")
-		    (3 "parent ")
-		    (4 "child ")
-		    (5 "print "))
-		  pos "\n\n")
+	  (cl-ecase label
+	    (0 (insert "--  query_tree node " pos "\n\n"))
+	    (1 (insert "--  query_tree containing_statement " pos "\n\n"))
+	    (2 (insert "--  query_tree ancestor " pos rest-of-line "\n\n"))
+	    (3 (insert "--  query_tree parent " pos "\n\n"))
+	    (4 (insert "--  query_tree child " pos "\n\n"))
+	    (5 (insert "--  query_tree print " pos "\n\n")))
 	  (set-buffer log-buffer)))
 
        ((and (string-equal (match-string 1) "refactor")
