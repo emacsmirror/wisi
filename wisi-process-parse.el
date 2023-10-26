@@ -151,7 +151,9 @@ Otherwise add PARSER to `wisi-process--alist', return it."
 	      (wisi-parse-log-message wisi-parser-shared "parse--filter found prompt - initial full"))
 	    (if (buffer-live-p (car wisi-parse-full-active))
 		(with-current-buffer (car wisi-parse-full-active)
-		  (read-only-mode -1)
+		  (if wisi-parse-full-read-only
+		      (setq wisi-parse-full-read-only nil)
+		    (read-only-mode -1))
 		  (let ((region (cdr wisi-parse-full-active)))
 		    (font-lock-flush (max (point-min) (car region)) (min (point-max) (cdr region))))
 
@@ -1212,6 +1214,7 @@ Source buffer is current."
    ((and full nowait)
     (set-process-filter (wisi-process--parser-process parser) #'wisi-process-parse--filter)
     (setq wisi-parse-full-active (cons (current-buffer) (cons (point-min) (point-max))))
+    (setq wisi-parse-full-read-only buffer-read-only)
     (read-only-mode 1)
     (wisi-process-parse--send-incremental-parse parser full))
    (t

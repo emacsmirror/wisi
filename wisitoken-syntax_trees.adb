@@ -7534,6 +7534,10 @@ package body WisiToken.Syntax_Trees is
              Shared_Link => Tree.Stream_First (Tree.Shared_Stream, Skip_SOI => True).Element.Cur,
              Elements    => <>)))
       do
+         --  WORKAROUND: This is broken by gnat 13; ada-mode
+         --  test/ada_mode-function_2.adb fails with a ref_count error.
+         Tree.Enable_Ref_Count_Check (Result, Enable => False);
+
          Tree.Next_Stream_Label := @ + 1;
       end return;
    end New_Stream;

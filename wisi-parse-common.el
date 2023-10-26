@@ -22,7 +22,7 @@
 ;;; Code:
 (require 'cl-lib)
 
-(defcustom wisi-incremental-parse-enable nil
+(defcustom wisi-incremental-parse-enable t
   "If non-nil, use incremental parse when possible."
   :type 'boolean
   :group 'wisi
@@ -239,6 +239,11 @@ The value is a list (source-buffer (font-lock-begin
 . font-lock-end)), where (FONT-LOCK-BEGIN . FONT-LOCK-END) is the
 region font-lock attempted to fontify while the parser was
 busy.")
+
+(defvar wisi-parse-full-read-only nil
+  ;; Only one buffer can be doing a full parse.
+  "Non-nil if `wisi-parse-full-active is t and the buffer was
+originally read-only.")
 
 (cl-defgeneric wisi-parse-incremental (parser parser-action &key full nowait)
   "Incrementally parse current buffer.
