@@ -1,6 +1,6 @@
 ;;; wisi-process-parse.el --- interface to external parse program  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 2014, 2017 - 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2024 Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
 ;;
@@ -21,6 +21,7 @@
 
 (require 'cl-lib)
 (require 'wisi-parse-common)
+(require 'wisi) ;For `wisi--changes' and `wisi-incremental-parse-enable'.
 
 (defconst wisi-process-parse-protocol-version "7"
   "Defines data exchanged between this package and the background process.
@@ -1343,6 +1344,11 @@ Source buffer is current."
 	  (wisi-process-parse--handle-messages parser))
 
 	(wisi-parse-tree-query parser 'dump (concat save-file-root ".tree_text")))))
+
+;; FIXME: Use proper `wisi-' prefix for those vars.
+(defvar parse_max_parallel)
+(defvar mckenzie_zombie_limit)
+(defvar mckenzie_enqueue_limit)
 
 (defun wisi-process-all-changes-to-cmd (&optional cmd-buffer-name)
   "Convert wisi-parser-local-all-changes in current buffer to command file

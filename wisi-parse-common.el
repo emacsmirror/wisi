@@ -1,6 +1,6 @@
 ;;; wisi-parse-common.el --- declarations used by wisi-parse.el, wisi-ada-parse.el, and wisi.el -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2014, 2015, 2017 - 2023  Free Software Foundation, Inc.
+;; Copyright (C) 2014-2024  Free Software Foundation, Inc.
 ;;
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
 ;;
@@ -50,7 +50,7 @@ for the changes. The filename is the visited file name with
 \"-wisi-change-start\"' appended."
   :type 'boolean
   :group 'wisi
-  :safe 'booleanp)
+  :safe #'booleanp)
 
 (defcustom wisi-save-text-tree nil
   "When non-nil, save the parser's copy of the full text and the
@@ -618,6 +618,8 @@ Normally set from a language-specific option.")
     (insert (format "%s" last-kbd-macro))
     (write-file file-name))
   (message "keyboard macro saved to file '%s'" file-name))
+
+(defvar wisi-incremental-parse-enable) ;FIXME: cyclic dependency with wisi.el.
 
 (defun wisi-parse-incremental-none ()
   "Force an incremental parse.

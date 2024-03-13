@@ -1,6 +1,6 @@
 ;;; wisi-run-indent-test.el --- utils for automating indentation and casing tests  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 2018 - 2023  Free Software Foundation, Inc.
+;; Copyright (C) 2018 - 2024  Free Software Foundation, Inc.
 ;;
 ;; This file is part of GNU Emacs.
 ;;
@@ -229,7 +229,7 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
 
 	;; for test-face
 	(setq jit-lock-context-time 0.0)
-	(setq-local font-lock-ensure-function 'jit-lock-fontify-now) ;; it's not at all clear what's resetting this
+	(setq-local font-lock-ensure-function #'jit-lock-fontify-now) ;; it's not at all clear what's resetting this
 	(setq-local eglot-send-changes-idle-time 0.0) ;; FIXME: did not help test-face
 
 	;; Test files use wisi-prj-select-cached to parse and select a project file.
@@ -477,22 +477,22 @@ Each item is a list (ACTION PARSE-BEGIN PARSE-END EDIT-BEGIN)")
        (cons 'height 103) ;; characters
        (cons 'left 0)
        (cons 'top 0))))))
-(define-key global-map "\C-cp" 'wisi-half-screen)
+(define-key global-map "\C-cp" #'wisi-half-screen)
 
 (defun wisi-first-error ()
   (interactive)
   (pop-to-buffer "*Messages*")
   (goto-char (point-min))
   (search-forward "error:"))
-(define-key global-map [f6] 'wisi-first-error)
+(define-key global-map [f6] #'wisi-first-error)
 
 (defun wisi-prev-window ()
   "move to previous window"
   (interactive)
   (other-window -1))
-(define-key global-map [M-C-up] 'wisi-prev-window)
-(define-key global-map [M-C-down] 'other-window)
-(define-key global-map [f11] 'switch-to-buffer)
+(define-key global-map [M-C-up] #'wisi-prev-window)
+(define-key global-map [M-C-down] #'other-window)
+(define-key global-map [f11] #'switch-to-buffer)
 
 (defun run-test (file-name)
   "Run an indentation and casing test on FILE-NAME."

@@ -1,6 +1,6 @@
-;; Set up building with Alire -*- no-byte-compile : t -*-
+;; Set up building with Alire -*- no-byte-compile: t; lexical-binding: t; -*-
 ;;
-;; Copyright (C) 2021, 2022  Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024  Free Software Foundation, Inc.
 ;;
 ;; This file is part of GNU Emacs.
 ;;
